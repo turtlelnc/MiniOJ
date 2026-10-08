@@ -1,7 +1,10 @@
 """Actual Docker hard-limit acceptance, independent of the HTTP server."""
-import dataclasses,json,sys
+import dataclasses,json,sys,os,tempfile
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
+_data=tempfile.TemporaryDirectory(prefix='minioj-resource-tests-')
+os.environ['MINIOJ_DATA']=_data.name
+from minioj import config
 from minioj.docker_backend import DockerJudgeSession,docker
 cases={
  'normal':('int main(){}',None),
@@ -36,5 +39,5 @@ for name,(code,expected) in cases.items():
   if name=='fork_limit':d['observed_forks']=int(r.stdout.strip())
   if name=='infinite_output':assert r.runtime_ms<2000,r
   d.pop('stdout');d.pop('stderr');report.append({'case':name,**d});print(name,d,flush=True)
- leftovers=docker(['ps','-a','--filter','name=minioj-test-','--format','{{.Names}}']);assert not leftovers,leftovers
+ leftovers=docker(['ps','-a','--filter','label=minioj.instance='+str(config.DB_PATH),'--filter','name=minioj-test-','--format','{{.Names}}']);assert not leftovers,leftovers
 Path('evidence/stage2-resources.json').write_text(json.dumps(report,indent=2))
