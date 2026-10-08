@@ -8,7 +8,7 @@ cases={
  'infinite_cpu':('int main(){while(1){}}','timeout'),
  'allocation':('#include <cstdlib>\n#include <cstring>\nint main(){while(1){auto p=malloc(1048576);if(!p)abort();memset(p,1,1048576);asm volatile(""::"r"(p):"memory");}}','memory_limit'),
  'short_peak':('#include <sys/mman.h>\n#include <cstring>\nint main(){auto p=mmap(0,96*1024*1024,3,0x22,-1,0);memset(p,1,96*1024*1024);munmap(p,96*1024*1024);}', 'memory_limit'),
- 'fork_limit':('#include <unistd.h>\n#include <cstdio>\nint main(){int n=0;for(int i=0;i<100;i++){auto p=fork();if(p==0){sleep(2);return 0;}if(p>0)n++;}printf("%d\n",n);fflush(stdout);sleep(2);}', 'timeout'),
+ 'fork_limit':('#include <unistd.h>\n#include <cstdio>\nint main(){int n=0;for(int i=0;i<100;i++){auto p=fork();if(p==0){sleep(2);return 0;}if(p>0)n++;}printf("%d",n);fflush(stdout);sleep(2);}', 'timeout'),
  'detached_child':('#include <unistd.h>\nint main(){if(fork()==0){setsid();close(0);close(1);close(2);while(1){}}}',None),
  'infinite_output':('#include <cstdio>\nint main(){while(1)puts("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");}','output_limit'),
  'crash':('#include <cstdlib>\nint main(){abort();}',None),
