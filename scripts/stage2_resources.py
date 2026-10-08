@@ -1,5 +1,6 @@
 """Actual Docker hard-limit acceptance, independent of the HTTP server."""
-import dataclasses,json,sys,os,tempfile
+import os
+import dataclasses,json,sys,tempfile
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
 _data=tempfile.TemporaryDirectory(prefix='minioj-resource-tests-')
@@ -19,7 +20,7 @@ cases={
  'near_deadline_memory':('#include <unistd.h>\n#include <sys/mman.h>\n#include <cstring>\nint main(){usleep(450000);auto p=mmap(0,96*1024*1024,3,0x22,-1,0);memset(p,1,96*1024*1024);asm volatile(""::"r"(p):"memory");while(1){}}', 'race'),
  'under_limit_peak':('#include <sys/mman.h>\n#include <cstring>\nint main(){auto p=mmap(0,16*1024*1024,3,0x22,-1,0);memset(p,1,16*1024*1024);asm volatile(""::"r"(p):"memory");munmap(p,16*1024*1024);}',None),
 }
-Path('evidence').mkdir(exist_ok=True)
+evidence=Path(os.environ.get('MINIOJ_EVIDENCE_DIR','evidence'));evidence.mkdir(parents=True,exist_ok=True)
 report=[]
 for name,(code,expected) in cases.items():
  with DockerJudgeSession() as session:
@@ -40,4 +41,4 @@ for name,(code,expected) in cases.items():
   if name=='infinite_output':assert r.runtime_ms<2000,r
   d.pop('stdout');d.pop('stderr');report.append({'case':name,**d});print(name,d,flush=True)
  leftovers=docker(['ps','-a','--filter','label=minioj.instance='+str(config.DB_PATH),'--filter','name=minioj-test-','--format','{{.Names}}']);assert not leftovers,leftovers
-Path('evidence/stage2-resources.json').write_text(json.dumps(report,indent=2))
+(evidence/'stage2-resources.json').write_text(json.dumps(report,indent=2))

@@ -294,3 +294,54 @@ mkdir -p evidence
 真实服务 SIGKILL 验收分别在 Compiling 与 Running 杀死服务，用临时独立数据库和短租约重启：两次均以 SE/worker_lease_expired 结束，attempt_count=1、Run Finished，后续新提交 AC。
 
 FakeAdapter 验收为 3 题 × 2 模型 × 3 seeds = 18 个实际 Agent Run；正确模型 9 AC，错误模型 9 WA，各模型 pass@1 分母为 3；暂停恢复、冻结快照、导出和重复启动去重均检查。真实 DeepSeek 单元已 AC/3 个测试点，seed_effective=null，约 7.6 秒（单次链路验证，不代表模型综合能力）。证据保存在本机 evidence，不包含密钥、不进入 Git。
+
+### 第三轮：资源计量与统计语义
+
+Docker 测试点继续使用独立容器、相同硬内存/无 swap/PID/CPU 限制、非 root、只读根目录、禁网、cap-drop ALL 和 no-new-privileges。测试容器的 Python PID 1 改为 Docker `--init` 加 `sleep infinity`，降低常驻内存且继续回收孤儿；编译/工作台容器不变。测试监督器从宿主可信源码通过 `python3 -S -c` 启动，选手输出经有界管道收集。监督器禁止 dump/ptrace，选手无法访问其报告管道；杀死监督器只会产生 SE，不会得到伪造的正常退出。无需重建已有镜像。
+
+结果 JSON 的计量口径：
+
+- `container_peak_memory_kb`：内核 `memory.peak`，覆盖整个测试容器自创建后的生命周期，包括 PID 1、sleep、监督器、所有选手子进程、加载/拷贝二进制和 tmpfs 页，以及计量读取进程。`memory_kb` / `peak_memory_kb` 保留为兼容别名；不能解释为选手 RSS。
+- `process_peak_rss_kb`：当前 Docker 方案无法可靠获得整棵选手进程树的精确峰值，返回 null；`process_memory_method=unavailable`。不减去基线推导进程峰值。
+- `container_baseline_memory_kb`：执行前 `memory.current` 快照，包含读取器自身与初始化/二进制 tmpfs 开销，是观察到的基线，不是固定常数。监督器执行期内存不包含在该基线中。相应 `*_method` 字段记录实际方法。
+- `cpu_time_ms`：`cpu.stat:usage_usec` 增量，包含容器内监督与观测开销；不宣称是纯选手 CPU 时间。不能仅因该数值大于题目限额而判 TLE。
+- `cgroup.before` / `cgroup.after` 保存原始快照；memory、cpu、pids 分别命名。对应增量仅在前后均可读且计数未回退时计算，否则为 null。计量读取器使用容器内 UID 0（不增加任何 capability），防止选手通过同 UID 的 /proc 文件篡改计量输出；选手仍始终是 UID 1000。读取器自身可能影响 PID 事件，因此 PID 增量仅作诊断，不能证明选手因 PID 限制退出。
+- OOM 导致整个容器停止时，cgroup 文件可能不可读：峰值和增量为 null，以保留的 `container_state.OOMKilled` 为 MLE 证据；不伪造进程信号。正常退出、监督器主动超时/输出限制终止而容器仍存活时仍能读取内核峰值。它包含初始化期峰值，未重置为仅选手执行区间。
+
+退出分类：独立记录选手 `exit_code` / `termination_signal` 和 `transport_exit_code`。正常非零退出或实际异常信号为 RE；输出超限为 RE/output_limit；监督器实际观察的 wall 超时为 TLE/timeout；内核 CPU 限制信号且 wait4 CPU 时间达到对应软限额为 TLE/cpu_timeout（主动发送 SIGXCPU 不足以确认 CPU 超时）。内存 OOM kill 增量或 Docker OOMKilled 为 MLE；单独 memory.max、pids.max、stderr 中的 bad_alloc 或 Docker CLI 137 均不足以推断资源终止。监督器缺失/损坏、Docker 传输错误、无 OOM 证据的意外容器退出为 SE。OOM 可能杀死监督器或 PID 1，因此没有直接的选手 wait 状态时信号和退出码均为 null。
+
+Benchmark 新字段兼容旧的 solve_rate、pass@1 和 token 均值：
+
+| 字段 | 分子 / 分母 |
+|---|---|
+| `evaluable_solve_rate`（旧 `solve_rate` 别名） | AC / 可评估终态独立 Run；Agent failure 计未解出，Model/Judge/Infrastructure failure 排除 |
+| `end_to_end_success_rate` | AC / 全部终态 Finished 或 Failed 独立 Run，包含上述所有失败 |
+| `final_end_to_end_success_rate` | 所有计划单元均终态才返回 AC / 全部计划单元，否则 null |
+| `failure_breakdown.*.rate` | 对应失败类别数量 / 全部终态 Run |
+| `failure_breakdown.*.share_of_failures` | 对应失败类别数量 / 全部失败终态 Run |
+| `pending_units` / `running_units` | 未执行 / 执行中的单元数量，不进入上述成功率分母 |
+| `pass@1` | 每个题目/模型的首个配置 seed 中，AC / 可评估终态独立 Run；首 seed 被排除时不以其他 seed 替补 |
+
+`solution_failure` 包含 WA/RE/TLE/MLE/CE，其余类别分别为 agent_failure、model_failure、judge_failure、infrastructure_failure；各 verdict 数量另见 `verdict_counts`。没有有效终态分类的记录保守计基础设施失败，SE 计 Judge failure。Failed 记录中的旧 AC 不计成功。成功率可能随实验进展变化，不能把部分完成结果称为全计划最终结果；即使某个模型组先完成，final 字段也等待整个实验完成。overall 汇总全部模型，groups 按模型分别汇总；protocol 保留在实验和 CSV 记录中。iterative 的 pass@1 是允许反馈/修改的首个独立 Agent Run 成功率，不是一次代码生成成功率。一个 Run 内的多次修改永远不是独立样本。
+
+Token 均值沿用可评估终态 Run 的实际观测；只接受非负整数计数，空对象、负数或错误类型视为缺失；缺失为 null，零为零，部分 usage 分别影响对应均值。`tokens_per_solved_problem` 只有全部可评估 Run 的输入/输出 usage 都存在时才计算；不包含被排除的 Model/Judge/Infrastructure failure 的成本，因此不是系统总成本指标。模型解题结果、Agent 失败分布和端到端成功率应一起阅读，不能用 solve_rate 隐藏系统失败。
+
+本轮验收可写入独立证据目录与独立数据库，不覆盖用户数据或既有报告：
+
+```sh
+export MINIOJ_EVIDENCE_DIR="$PWD/evidence/round3"
+export MINIOJ_DATA="$MINIOJ_EVIDENCE_DIR/data"
+mkdir -p "$MINIOJ_EVIDENCE_DIR"
+.venv/bin/python -m compileall -q minioj benchmark scripts
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python scripts/stage2_resources.py
+.venv/bin/python scripts/round3_resources.py
+.venv/bin/python scripts/queue_crash_acceptance.py
+# 同样环境变量启动 scripts/run.sh 后，顺序运行：
+.venv/bin/python scripts/acceptance.py
+.venv/bin/python scripts/resource_acceptance.py
+.venv/bin/python scripts/benchmark_acceptance.py
+MINIOJ_BENCHMARK_PROTOCOL=iterative .venv/bin/python scripts/benchmark_acceptance.py
+```
+
+本轮只使用 Fake Adapter，未调用付费模型 API。实际测试数量、结果、实验 ID 和限制见本轮交付记录；这里的命令不是对未执行测试的通过声明。

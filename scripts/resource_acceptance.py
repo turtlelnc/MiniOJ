@@ -1,4 +1,5 @@
 """Additional container resource, daemon cleanup, and expiry verification."""
+import os
 import json, subprocess, sys, time
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parent.parent))
@@ -6,8 +7,9 @@ import httpx
 from minioj import db, config
 from minioj.docker_backend import DockerJudgeSession,docker
 root=Path(__file__).resolve().parent.parent
-(root/'evidence').mkdir(exist_ok=True)
-c=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':(root/'data/api-token').read_text().strip()},timeout=90,trust_env=False)
+evidence=Path(os.environ.get('MINIOJ_EVIDENCE_DIR',root/'evidence'))
+evidence.mkdir(parents=True,exist_ok=True)
+c=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':config.TOKEN},timeout=90,trust_env=False)
 report=[]
 def call(method,path,**kw):
     r=c.request(method,path,**kw);r.raise_for_status();return r.json()
@@ -29,7 +31,8 @@ with DockerJudgeSession() as session:
     assert not processes,processes
     record('daemonized_fork_cleanup')
 
-r=call('POST','/agent-runs',json={'problem_id':1,'source':'agent','metadata':{'model_name':'resource-acceptance'}});rid=r['id']
+pid=call('POST','/problems',json={'title':'Resource acceptance fixture','allow_workspace':True,'testcases':[{'input':'','expected_output':''}]})['id']
+r=call('POST','/agent-runs',json={'problem_id':pid,'source':'agent','metadata':{'model_name':'resource-acceptance'}});rid=r['id']
 try:
     name=db.run(rid,True)['container']
     settings=json.loads(docker(['inspect',name]))[0]
@@ -57,5 +60,7 @@ try:
     assert r['status']=='Expired',r
     assert name not in docker(['ps','-a','--format','{{.Names}}']).decode().splitlines()
     record('expiry_removes_container')
-finally: call('DELETE',f'/agent-runs/{rid}/environment')
-(root/'evidence'/'resource-acceptance.json').write_text(json.dumps(report,indent=2))
+finally:
+ call('DELETE',f'/agent-runs/{rid}/environment')
+ call('DELETE',f'/problems/{pid}')
+(evidence/'resource-acceptance.json').write_text(json.dumps(report,indent=2))

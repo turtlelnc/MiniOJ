@@ -1,6 +1,10 @@
 import base64, dataclasses, io, json, math, os, selectors, signal, subprocess, tarfile, tempfile, time, uuid
 from . import config
 from .runner import Execution
+from pathlib import Path
+
+# Pin the same trusted source whose fingerprint config captured at startup.
+SUPERVISOR_SOURCE=Path(__file__).resolve().parent.parent.joinpath('scripts/container_judge.py').read_text()
 
 class DockerError(RuntimeError): pass
 
@@ -59,7 +63,7 @@ def create_container(prefix='run', memory=512, start=True,image=None):
             '--user','1000:1000','--memory',f'{memory}m','--memory-swap',f'{memory}m','--cpus','1',
             '--pids-limit','64','--ulimit','nofile=128:128','--ulimit','core=0:0','--log-driver','none',
             '--tmpfs','/workspace:rw,exec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=700',
-            '--tmpfs','/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=700',image or config.IMAGE],timeout=60)
+            '--tmpfs','/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=700',*(['--init'] if prefix=='test' else []),image or config.IMAGE,*(['/bin/sleep','infinity'] if prefix=='test' else [])],timeout=60)
     return name
 
 def remove_container(name):
@@ -77,6 +81,8 @@ def read_file(name,path):
     return base64.b64decode(files(name,{'op':'read','path':path})['content_b64'])
 
 def execute(name,request):
+    start=time.monotonic()
+    before=cgroup_metrics(name)
     try:
         data=docker(['exec','-i',name,'python3','/opt/container_exec.py'],json.dumps(request).encode(),timeout=request['time_limit_ms']/1000+15)
         result=json.loads(data)
@@ -84,67 +90,144 @@ def execute(name,request):
         result['stderr']=base64.b64decode(result.pop('stderr_b64'))
         return Execution(**result)
     except DockerError:
-        # A cgroup OOM can kill the trusted exec supervisor as well as its child.
-        try:
-            oom=docker(['exec',name,'cat','/sys/fs/cgroup/memory.events']).decode()
-            if any(line.startswith('oom_kill ') and int(line.split()[1])>0 for line in oom.splitlines()):
-                return Execution(-9,'memory_limit',0,0,b'',b'', 'cgroup_oom_no_peak_available')
-        except DockerError: pass
+        after=cgroup_metrics(name)
+        try:state=json.loads(docker(['inspect','--format','{{json .State}}',name]))
+        except (DockerError,ValueError):state={}
+        if (metric_delta(before,after,'memory','oom_kill') or 0)>0 or state.get('OOMKilled') is True:
+            result=classify_execution(None,resource_metrics(before,after),state,None)
+            result.runtime_ms=round((time.monotonic()-start)*1000,3)
+            return result
         remove_container(name)
         raise
 
+# Each file has its own namespace. Partial/malformed files are unavailable,
+# never silently interpreted as zero events.
+CGROUP_FILES = {'memory_peak':'memory.peak','memory_current':'memory.current',
+                'memory':'memory.events','cpu':'cpu.stat','pids':'pids.events'}
+CGROUP_READER = '; '.join("printf '\\n@@"+key+"@@\\n'; cat /sys/fs/cgroup/"+filename+" 2>/dev/null || true" for key,filename in CGROUP_FILES.items())
+
+def parse_cgroup_snapshot(raw):
+    result={key:None for key in CGROUP_FILES}
+    for key in result:
+        marker='@@'+key+'@@'
+        if raw.count(marker)!=1:continue
+        body=raw.split(marker,1)[1].split('@@',1)[0].strip()
+        try:
+            if key.startswith('memory_'):
+                value=int(body)
+                if value<0:raise ValueError()
+            else:
+                value={}
+                for line in body.splitlines():
+                    k,v=line.split()
+                    if k in value or int(v)<0:raise ValueError()
+                    value[k]=int(v)
+                if not value:raise ValueError()
+            result[key]=value
+        except (ValueError,TypeError):pass
+    return result
+
 def cgroup_metrics(name):
-    # Kernel-owned read-only files, separate from contestant stdout. May be
-    # unavailable after container OOM/PID exhaustion; never invent a peak.
     try:
-        raw=docker(['exec',name,'cat','/sys/fs/cgroup/memory.peak','/sys/fs/cgroup/memory.events','/sys/fs/cgroup/cpu.stat','/sys/fs/cgroup/pids.events'],timeout=3).decode().splitlines()
-        return {'peak':int(raw[0]),**{line.split()[0]:int(line.split()[1]) for line in raw[1:] if len(line.split())==2}}
-    except (DockerError,ValueError): return None
+        raw=docker(['exec','--user','0:0',name,'/bin/sh','-c',CGROUP_READER],timeout=3).decode()
+        return parse_cgroup_snapshot(raw)
+    except (DockerError,ValueError):
+        return {key:None for key in CGROUP_FILES}
+
+def metric_delta(before,after,section,key):
+    a=(before.get(section) or {}).get(key)
+    b=(after.get(section) or {}).get(key)
+    return b-a if a is not None and b is not None and b>=a else None
+
+def resource_metrics(before,after):
+    return {'before':before,'after':after,
+            'memory':{'peak_bytes':after.get('memory_peak'),
+                      'oom_kill_delta':metric_delta(before,after,'memory','oom_kill'),
+                      'max_delta':metric_delta(before,after,'memory','max')},
+            'cpu':{'usage_usec_delta':metric_delta(before,after,'cpu','usage_usec')},
+            'pids':{'max_delta':metric_delta(before,after,'pids','max')}}
+
+def classify_execution(report,metrics,state,transport_rc,stdout=b'',stderr=b''):
+    oom=(metrics['memory']['oom_kill_delta'] or 0)>0 or state.get('OOMKilled') is True
+    peak=metrics['memory']['peak_bytes']
+    baseline=metrics['before'].get('memory_current')
+    cpu=metrics['cpu']['usage_usec_delta']
+    result=Execution(None,None,0,None,stdout,stderr,
+                     'cgroup_v2_memory_peak_container' if peak is not None else 'container_hard_limit_peak_unavailable',
+                     round(cpu/1000,3) if cpu is not None else None,
+                     container_peak_memory_kb=math.ceil(peak/1024) if peak is not None else None,
+                     container_memory_method='cgroup_v2_memory.peak' if peak is not None else 'unavailable',
+                     container_baseline_memory_kb=math.ceil(baseline/1024) if baseline is not None else None,
+                     cgroup=metrics,transport_exit_code=transport_rc,container_state=state,
+                     cpu_time_method='cgroup_v2_cpu.stat_delta_including_observers' if cpu is not None else 'unavailable',
+                     container_baseline_memory_method='cgroup_v2_memory.current_before_execution_including_reader' if baseline is not None else 'unavailable')
+    result.memory_kb=result.container_peak_memory_kb # compatibility, explicitly container-wide
+    if report is not None:
+        result.returncode=report['returncode']
+        result.termination_signal=report['termination_signal']
+        result.reason=report['reason']
+        result.runtime_ms=report['runtime_ms']
+        result.stdout=base64.b64decode(report['stdout_b64'],validate=True)
+        result.stderr=base64.b64decode(report['stderr_b64'],validate=True)
+    if oom:
+        result.reason='memory_limit'
+        # OOM may have killed PID 1 or the supervisor. Never guess child signal.
+    elif report is None or transport_rc!=0 or state.get('Running') is not True:
+        result.reason='infrastructure_error'
+        result.infrastructure_error='missing_or_failed_supervisor_or_container'
+    return result
+
+def parse_execution_report(raw):
+    try:
+        report=json.loads(raw)
+        if not isinstance(report,dict) or type(report.get('version')) is not int or report['version']!=1:
+            return None
+        rc=report['returncode'];sig=report['termination_signal']
+        if type(rc) is not int or not -64<=rc<=255:return None
+        if (sig is not None and type(sig) is not int) or sig!=(-rc if rc<0 else None):return None
+        if report['reason'] not in (None,'timeout','cpu_timeout','output_limit'):return None
+        wall=report['runtime_ms']
+        if type(wall) not in (int,float) or not math.isfinite(wall) or wall<0:return None
+        for key in ('stdout_b64','stderr_b64'):base64.b64decode(report[key],validate=True)
+        return report
+    except (ValueError,TypeError,KeyError):return None
 
 def hard_execute(name,input_data,time_ms,memory_mb,output_limit=1048576):
     before=cgroup_metrics(name)
-    limits={'cpu':max(1,math.ceil(time_ms/1000)),'memory_mb':memory_mb,'output':output_limit}
-    argv=[config.DOCKER,*(['--context',config.DOCKER_CONTEXT] if config.DOCKER_CONTEXT else []),'exec','-i',name,'prlimit','--cpu='+str(limits['cpu'])+':'+str(limits['cpu']+1),'--fsize='+str(output_limit)+':'+str(output_limit),'--nofile=64:64','--core=0:0','--','/workspace/main']
-    reason=None; rc=None; signal_number=None
+    argv=[config.DOCKER,*(['--context',config.DOCKER_CONTEXT] if config.DOCKER_CONTEXT else []),
+          'exec','-i',name,'python3','-S','-c',SUPERVISOR_SOURCE,str(time_ms),str(output_limit)]
+    start=time.monotonic();raw=bytearray();err=bytearray();watchdog=False
     with tempfile.TemporaryFile() as inp:
-        inp.write(input_data);inp.seek(0);start=time.monotonic()
+        inp.write(input_data);inp.seek(0)
         p=subprocess.Popen(argv,stdin=inp,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
-        stdout=bytearray();stderr=bytearray();after=None
         try:
-            # Bounded pipes avoid writing unlimited contestant output to disk.
             with selectors.DefaultSelector() as selector:
-                for pipe,target in ((p.stdout,stdout),(p.stderr,stderr)):
+                for pipe,target in ((p.stdout,raw),(p.stderr,err)):
                     os.set_blocking(pipe.fileno(),False);selector.register(pipe,selectors.EVENT_READ,target)
                 while selector.get_map() or p.poll() is None:
-                    if (time.monotonic()-start)*1000>time_ms:reason='timeout';break
+                    # Supervisor owns contestant wall timeout. A failed/hung
+                    # supervisor/transport is SE, not contestant TLE.
+                    if (time.monotonic()-start)*1000>time_ms+5000:
+                        watchdog=True;break
                     for key,_ in selector.select(.005):
                         chunk=os.read(key.fd,65536)
                         if not chunk:selector.unregister(key.fileobj);continue
-                        remaining=output_limit-len(stdout)-len(stderr)
-                        key.data.extend(chunk[:remaining])
-                        if len(chunk)>=remaining:reason='output_limit';break
-                    if reason:break
-            rc=p.poll()
-            if reason:
-                # Stop the cgroup before any potentially slow accounting query.
-                # Kernel counters may then be unavailable, which is recorded null.
-                if p.poll() is None:p.kill()
-                p.wait(timeout=2);p.stdout.close();p.stderr.close()
-                try:docker(['kill',name],timeout=5)
-                except DockerError:pass
-            else:after=cgroup_metrics(name)
-            wall=round((time.monotonic()-start)*1000,3)
-            if after and after.get('oom_kill',0)>(before or {}).get('oom_kill',0):reason='memory_limit';signal_number=9
-            if not after:
-                state=json.loads(docker(['inspect','--format','{{json .State}}',name]))
-                if state.get('OOMKilled'):reason='memory_limit';signal_number=9
-            if reason is None and after and after.get('max',0)>0:reason='process_limit'
+                        key.data.extend(chunk)
+                        if len(raw)>output_limit*2+65536 or len(err)>65536:
+                            watchdog=True;break
+                    if watchdog:break
+            if watchdog and p.poll() is None:p.kill()
+            rc=p.wait(timeout=2)
+            after=cgroup_metrics(name)
+            state=json.loads(docker(['inspect','--format','{{json .State}}',name]))
+            report=None if watchdog else parse_execution_report(raw)
+            result=classify_execution(report,resource_metrics(before,after),state,rc,stderr=bytes(err))
+            if report is None:result.runtime_ms=round((time.monotonic()-start)*1000,3)
+            return result
         finally:
             remove_container(name)
             if p.poll() is None:os.killpg(p.pid,signal.SIGKILL)
             p.wait();p.stdout.close();p.stderr.close()
-        if reason is None and rc and (b'bad_alloc' in stderr or b'Cannot allocate memory' in stderr):reason='memory_allocation_failure'
-        return Execution(rc,reason,wall,math.ceil(after['peak']/1024) if after else None,bytes(stdout),bytes(stderr),'cgroup_v2_memory_peak_container' if after else 'container_hard_limit_peak_unavailable',round(max(0,after['usage_usec']-before['usage_usec'])/1000,3) if before and after else None,signal_number)
 
 class DockerJudgeSession:
     def __init__(self,image=None): self.name=None;self.binary=None;self.image=image

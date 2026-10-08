@@ -1,10 +1,14 @@
 """Real HTTP + Linux container acceptance; leaves results as audit evidence."""
-import asyncio, json, time
+import os
+import asyncio, json, time, sys
 from pathlib import Path
 import httpx, websockets
 ROOT=Path(__file__).resolve().parent.parent
-(ROOT/'evidence').mkdir(exist_ok=True)
-TOKEN=(ROOT/'data/api-token').read_text().strip()
+sys.path.insert(0,str(ROOT))
+EVIDENCE=Path(os.environ.get('MINIOJ_EVIDENCE_DIR',ROOT/'evidence'))
+from minioj import config
+EVIDENCE.mkdir(parents=True,exist_ok=True)
+TOKEN=config.TOKEN
 c=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':TOKEN},timeout=90,trust_env=False)
 report=[]
 def call(method,path,**kw):
@@ -83,7 +87,7 @@ def main():
     call('DELETE',f'/problems/{pid}');assert c.get(f'/problems/{pid}').status_code==404
     assert call('GET',f'/submissions/{sid}')['verdict']=='AC'
     record('edit_soft_delete_history')
-    (ROOT/'evidence'/'acceptance.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
+    (EVIDENCE/'acceptance.json').write_text(json.dumps(report,indent=2,ensure_ascii=False))
 
 async def terminal_test(rid):
     async with websockets.connect(f'ws://127.0.0.1:8000/api/agent-runs/{rid}/terminal',additional_headers={'X-MiniOJ-Token':TOKEN},proxy=None) as ws:

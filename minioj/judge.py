@@ -18,6 +18,14 @@ class LocalJudgeSession:
     def run(self,input_data,time_ms,memory_mb):
         return self.runner.run([str(self.path/'main')],self.path,input_data,time_ms,memory_mb)
 
+def execution_verdict(result,expected,checker):
+    if result.infrastructure_error or result.reason=='infrastructure_error': return 'SE'
+    if result.reason=='memory_limit': return 'MLE'
+    if result.reason in ('timeout','cpu_timeout'): return 'TLE'
+    if result.returncode is None: return 'SE'
+    if result.reason or result.returncode: return 'RE'
+    return 'AC' if compare(result.stdout,expected,checker) else 'WA'
+
 def judge(sid,owner=None):
     if owner is None:
         owner=uuid.uuid4().hex
@@ -37,6 +45,8 @@ def judge(sid,owner=None):
             compiled=session.compile(s['source_code'])
             output=(compiled.stdout+compiled.stderr).decode(errors='replace')[:config.OUTPUT_LIMIT]
             update(compile_output=output)
+            if compiled.infrastructure_error or compiled.returncode is None and compiled.reason!='memory_limit':
+                raise RuntimeError(compiled.infrastructure_error or 'compiler_supervisor_unavailable')
             if compiled.returncode or compiled.reason:
                 update(status='Finished',verdict='CE',reason=compiled.reason or 'compile_failed')
                 return
@@ -44,13 +54,23 @@ def judge(sid,owner=None):
             verdict='AC'; reason=None
             for i,t in enumerate(p['testcases']):
                 r=session.run(t['input'].encode(),p['time_limit_ms'],p['memory_limit_mb'])
-                if r.reason in ('memory_limit','memory_allocation_failure'): v='MLE'
-                elif r.reason=='timeout': v='TLE'
-                elif r.reason or r.returncode: v='RE'
-                elif compare(r.stdout,t['expected_output'].encode(),p['checker']): v='AC'
-                else: v='WA'
+                v=execution_verdict(r,t['expected_output'].encode(),p['checker'])
                 # Hidden stdout/stderr are not exposed: they can reveal test inputs.
-                results.append({'test_index':i+1,'verdict':v,'runtime_ms':r.runtime_ms,'memory_kb':r.memory_kb if r.memory_method!='cgroup_oom_no_peak_available' else None,'memory_method':r.memory_method,'exit_code':r.returncode if r.termination_signal is None and (config.JUDGE_BACKEND!='docker' or r.returncode is not None and r.returncode<128) else None,'transport_exit_code':r.returncode if config.JUDGE_BACKEND=='docker' else None,'reason':r.reason,'wall_time_ms':r.runtime_ms,'cpu_time_ms':r.cpu_time_ms,'peak_memory_kb':r.memory_kb,'termination_signal':r.termination_signal,'termination_reason':r.reason or ('nonzero_exit' if r.returncode else None)})
+                results.append({'test_index':i+1,'verdict':v,'runtime_ms':r.runtime_ms,
+                    'memory_kb':r.memory_kb,'memory_method':r.memory_method,
+                    'exit_code':r.returncode if r.returncode is not None and r.returncode>=0 else None,
+                    'transport_exit_code':r.transport_exit_code,'reason':r.reason,
+                    'wall_time_ms':r.runtime_ms,'cpu_time_ms':r.cpu_time_ms,'peak_memory_kb':r.memory_kb,
+                    'container_peak_memory_kb':r.container_peak_memory_kb,
+                    'process_peak_rss_kb':r.process_peak_rss_kb,
+                    'container_memory_method':r.container_memory_method,
+                    'process_memory_method':r.process_memory_method,
+                    'container_baseline_memory_kb':r.container_baseline_memory_kb,
+                    'cgroup':r.cgroup,'infrastructure_error':r.infrastructure_error,
+                    'container_state':r.container_state,'cpu_time_method':r.cpu_time_method,
+                    'container_baseline_memory_method':r.container_baseline_memory_method,
+                    'termination_signal':r.termination_signal,
+                    'termination_reason':r.reason or ('signal' if r.termination_signal else 'nonzero_exit' if r.returncode else None)})
                 if v=='AC': passed+=1
                 update(passed_tests=passed,results=results)
                 if v!='AC': verdict=v; reason=r.reason; break

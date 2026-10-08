@@ -1,13 +1,15 @@
 """SIGKILL isolated real server during compile/run; restart, fence, reconcile."""
-import json,os,signal,subprocess,sys,tempfile,time
+import os
+import json,signal,subprocess,sys,tempfile,time
 from pathlib import Path
 import httpx
 root=Path(__file__).resolve().parent.parent
-(root/'evidence').mkdir(exist_ok=True)
+evidence=Path(os.environ.get('MINIOJ_EVIDENCE_DIR',root/'evidence'))
+evidence.mkdir(parents=True,exist_ok=True)
 report=[]
 with tempfile.TemporaryDirectory(prefix='minioj-crash-') as directory:
  env={**os.environ,'MINIOJ_DATA':directory,'MINIOJ_JUDGE_BACKEND':'docker','MINIOJ_SUBMISSION_LEASE_SECONDS':'10'}
- server=None;log=open(root/'evidence'/'queue-crash-server.log','wb')
+ server=None;log=open(evidence/'queue-crash-server.log','wb')
  def start():
   p=subprocess.Popen([sys.executable,'-m','uvicorn','minioj.app:app','--host','127.0.0.1','--port','8001'],cwd=root,env=env,stdout=log,stderr=log,start_new_session=True)
   end=time.monotonic()+20
@@ -57,4 +59,4 @@ with tempfile.TemporaryDirectory(prefix='minioj-crash-') as directory:
   if server and server.poll() is None:
    server.terminate();server.wait(timeout=50)
   log.close()
-(root/'evidence'/'queue-crash-acceptance.json').write_text(json.dumps(report,indent=2))
+(evidence/'queue-crash-acceptance.json').write_text(json.dumps(report,indent=2))
