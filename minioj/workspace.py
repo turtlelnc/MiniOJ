@@ -35,8 +35,8 @@ class WorkspaceManager:
         with db.connect() as c:
             c.execute("UPDATE agent_runs SET status='Finished',ended_at=? WHERE status='Judging' AND final_submission_id IN (SELECT id FROM submissions WHERE status='Finished')",(db.now(),))
         self.thread=threading.Thread(target=self.monitor,daemon=True,name='workspace-monitor'); self.thread.start()
-    def create(self,pid,source,metadata,environment=True):
-        snapshot=db.problem(pid,True)
+    def create(self,pid,source,metadata,environment=True,snapshot=None):
+        snapshot=snapshot or db.problem(pid,True)
         if not snapshot: raise KeyError(pid)
         if environment and not snapshot.get('allow_workspace',False): raise PermissionError('本题未允许启用工作台')
         with self.lock:
@@ -48,7 +48,7 @@ class WorkspaceManager:
             if not environment: return rid
             name=None
             try:
-                name=create_container('run')
+                name=create_container('run',image=snapshot.get('_judge_image'))
                 public={k:v for k,v in snapshot.items() if k not in ('testcases','deleted')}
                 write_file(name,'problem.json',json.dumps(public,ensure_ascii=False,indent=2).encode())
                 write_file(name,'main.cpp',b'')
@@ -106,9 +106,11 @@ class WorkspaceManager:
             r=execute(name,{'kind':'command','command':command,'time_limit_ms':timeout_ms,'memory_limit_mb':384,'output_limit':output_limit,'input_b64':base64.b64encode(stdin.encode()).decode()})
             result=dataclasses.asdict(r)
             result['stdout']=r.stdout.decode(errors='replace'); result['stderr']=r.stderr.decode(errors='replace')
-            db.update_command(cid,'Finished',result)
-        except Exception as e: db.update_command(cid,'Finished',{'error':str(e)[:2000]})
-        finally: self.release(rid)
+        except Exception as e: result={'error':str(e)[:2000]}
+        finally:
+            with self.lock:
+                self.busy.discard(rid)
+                db.update_command(cid,'Finished',result)
     def destroy(self,rid,status='Destroyed'):
         with self.lock:
             r=db.run(rid,True)
@@ -127,13 +129,8 @@ class WorkspaceManager:
                 self.active(rid)
                 code=read_file(r['container'],path).decode('utf-8')
             if len(code.encode())>config.SOURCE_LIMIT: raise ValueError('Source too large')
-            if queue.queue.full(): raise OverflowError('Judge queue is full')
-            # Publish to queue only after marking the run, so a quick judge cannot race finalization.
-            sid=db.create_submission(r['problem_id'],code,r['source'],rid,r['snapshot'])
-            db.update_run(rid,status='Judging',final_submission_id=sid)
+            sid=queue.submit(r['problem_id'],code,r['source'],rid,r['snapshot'],final=True)
             self.destroy(rid)
-            try: queue.queue.put_nowait(sid)
-            except __import__('queue').Full: pass
             return sid
     def monitor(self):
         while not self.stop.wait(3):

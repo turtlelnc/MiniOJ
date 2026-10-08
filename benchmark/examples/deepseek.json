@@ -1,0 +1,10 @@
+{
+  "name": "coding-basic-v1",
+  "problems": [1],
+  "models": [{"provider": "deepseek", "model": "deepseek-flash", "api_key_env": "DEEPSEEK_API_KEY"}],
+  "seeds": [1, 2, 3],
+  "protocol": "final_only",
+  "temperature": 0,
+  "max_tokens": 4096,
+  "limits": {"max_model_calls": 16, "max_tool_calls": 50, "max_wall_time_seconds": 300}
+}

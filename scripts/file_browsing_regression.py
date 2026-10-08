@@ -2,6 +2,7 @@ import asyncio,json,time
 from pathlib import Path
 import httpx,websockets
 root=Path(__file__).resolve().parent.parent
+(root/'evidence').mkdir(exist_ok=True)
 token=(root/'data/api-token').read_text().strip()
 c=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':token},timeout=60,trust_env=False)
 r=c.post('/agent-runs',json={'problem_id':1,'source':'human','metadata':{'test':'file browsing regression'}});r.raise_for_status();rid=r.json()['id']

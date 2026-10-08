@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 from . import config, db
@@ -17,7 +17,7 @@ async def lifespan(app):
     db.initialize(); workspaces.start(); judge_queue.start()
     yield
     workspaces.close(); judge_queue.close()
-app=FastAPI(title='MiniOJ',version='0.1.0',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url='/api/openapi.json')
+app=FastAPI(title='MiniOJ',version='0.2.0',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url='/api/openapi.json')
 ALLOWED_HOSTS={'127.0.0.1','localhost','::1'}
 def valid_host(host):
     try: return urlsplit('http://'+host).hostname in ALLOWED_HOSTS
@@ -111,7 +111,7 @@ class RunSubmission(BaseModel):
 class FinishInput(BaseModel): final_submission_id:int
 
 @app.get('/api/health')
-def health(): return {'status':'ok','judge_backend':config.JUDGE_BACKEND,'sandbox_available':available(),'workspace_limits':{'wall_seconds':900,'cpu_seconds':120,'memory_mb':512,'workspace_mb':64,'pids':64,'network':False},'feedback_default':'final_only'}
+def health(): return {'status':'ok','judge_backend':config.JUDGE_BACKEND,'sandbox_available':available(),'workspace_limits':{'wall_seconds':900,'cpu_seconds':120,'memory_mb':512,'workspace_mb':64,'pids':64,'network':False},'feedback_default':'final_only','runtime_information':config.RUNTIME_INFORMATION}
 @app.get('/api/problems')
 def list_problems(): return db.problems()
 @app.get('/api/problems/{pid}')
@@ -284,6 +284,49 @@ async def terminal(ws:WebSocket,rid:str):
         db.update_command(cid,'Finished',{'stdout':transcript.decode(errors='replace'),'stdin':inputs.decode(errors='replace'),'reason':reason})
         workspaces.release(rid)
         with contextlib.suppress(Exception): await ws.close()
+
+# Benchmark runner APIs use the same local administrative identity as other APIs.
+from benchmark import storage as benchmark_storage
+from benchmark.reports import csv_text
+class LeaseInput(BaseModel): owner:str=Field(min_length=1,max_length=128)
+class UnitInput(LeaseInput):
+    status:Literal['Running','Finished','Failed']
+    record:dict
+    run_id:str|None=None
+@app.post('/api/benchmarks',status_code=201)
+def create_benchmark(spec:dict):return {'id':benchmark_storage.create(spec)}
+@app.get('/api/benchmarks')
+def list_benchmarks():return benchmark_storage.listing()
+@app.get('/api/benchmarks/{bid}')
+def get_benchmark(bid:str):return benchmark_storage.get(bid)
+@app.get('/api/benchmarks/{bid}/export/{format}')
+def export_benchmark(bid:str,format:str):
+    b=benchmark_storage.get(bid)
+    if format=='json':return JSONResponse(b,headers={'Content-Disposition':f'attachment; filename="{bid}.json"'})
+    if format=='csv':return Response(csv_text(b),media_type='text/csv',headers={'Content-Disposition':f'attachment; filename="{bid}.csv"'})
+    raise HTTPException(404,'Unknown export format')
+@app.post('/api/benchmarks/{bid}/acquire')
+def acquire_benchmark(bid:str,p:LeaseInput):benchmark_storage.acquire(bid,p.owner);return {'ok':True}
+@app.post('/api/benchmarks/{bid}/heartbeat')
+def heartbeat_benchmark(bid:str,p:LeaseInput):benchmark_storage.heartbeat(bid,p.owner);return {'ok':True}
+@app.post('/api/benchmarks/{bid}/release')
+def release_benchmark(bid:str,p:LeaseInput):benchmark_storage.release(bid,p.owner);return {'ok':True}
+@app.put('/api/benchmarks/{bid}/units/{uid}')
+def update_benchmark_unit(bid:str,uid:str,p:UnitInput):
+    benchmark_storage.update_unit(bid,uid,p.owner,p.status,p.record,p.run_id);return {'ok':True}
+@app.post('/api/benchmarks/{bid}/units/{uid}/run',status_code=201)
+def benchmark_unit_run(bid:str,uid:str,p:LeaseInput):
+    with workspaces.lock:
+        with db.connect() as c:benchmark_storage.owned(c,bid,p.owner)
+        b=benchmark_storage.get(bid,internal=True)
+        u=next((u for u in b['units'] if u['id']==uid),None)
+        if not u:raise KeyError(uid)
+        if u['run_id']:return db.run(u['run_id'])
+        if u['status']!='Running':raise ValueError('Unit is not running')
+        m=b['manifest'];snapshot=next(p for p in m['problem_snapshots'] if p['id']==u['problem_id']);model=m['models'][u['model_index']]
+        metadata={'benchmark_id':bid,'benchmark_unit_id':uid,'provider':model['provider'],'model_name':model['model'],'feedback_policy':m['protocol']}
+        rid=workspaces.create(snapshot['id'],'agent',metadata,True,snapshot=snapshot)
+        return db.run(rid)
 
 app.mount('/static',StaticFiles(directory=config.ROOT/'static'),name='static')
 @app.get('/{path:path}',include_in_schema=False)

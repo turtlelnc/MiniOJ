@@ -7,10 +7,12 @@ class Execution:
     returncode: int | None
     reason: str | None
     runtime_ms: float
-    memory_kb: int
+    memory_kb: int | None
     stdout: bytes
     stderr: bytes
     memory_method: str = 'sampled_process_tree_rss'
+    cpu_time_ms: float | None = None
+    termination_signal: int | None = None
 
 class LocalRunner:
     """Resource-limited backend, not a filesystem/network security sandbox."""
@@ -74,4 +76,4 @@ class LocalRunner:
             if reason is None and p.returncode == -signal.SIGXCPU: reason='timeout'
             if reason is None and p.returncode == -signal.SIGXFSZ: reason='output_limit'
             if reason is None and p.returncode and (b'bad_alloc' in err or b'Cannot allocate memory' in err): reason='memory_allocation_failure'
-            return Execution(p.returncode,reason,round((time.monotonic()-start)*1000,3),math.ceil(peak/1024),out,err,'sampled_tree_rss_and_cgroup_delta' if baseline else 'sampled_process_tree_rss')
+            return Execution(p.returncode,reason,round((time.monotonic()-start)*1000,3),math.ceil(peak/1024),out,err,'sampled_tree_rss_and_cgroup_delta' if baseline else 'sampled_process_tree_rss',None,-p.returncode if p.returncode<0 else None)

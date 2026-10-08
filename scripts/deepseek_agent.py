@@ -5,6 +5,7 @@ import httpx
 parser=argparse.ArgumentParser();parser.add_argument('--key-stdin',action='store_true');parser.add_argument('--model',default='deepseek-flash');args=parser.parse_args()
 key=sys.stdin.readline().strip() if args.key_stdin else os.environ['DEEPSEEK_API_KEY']
 root=Path(__file__).resolve().parent.parent
+(root/'evidence').mkdir(exist_ok=True)
 local=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':(root/'data/api-token').read_text().strip()},trust_env=False,timeout=60)
 remote=httpx.Client(base_url='https://api.deepseek.com',headers={'Authorization':'Bearer '+key},timeout=60)
 def api(method,path,**kwargs):

@@ -6,6 +6,7 @@ import httpx
 from minioj import db, config
 from minioj.docker_backend import DockerJudgeSession,docker
 root=Path(__file__).resolve().parent.parent
+(root/'evidence').mkdir(exist_ok=True)
 c=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':(root/'data/api-token').read_text().strip()},timeout=90,trust_env=False)
 report=[]
 def call(method,path,**kw):

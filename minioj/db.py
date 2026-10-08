@@ -1,7 +1,7 @@
-import sqlite3, json, uuid
+import sqlite3, json, time, uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from .config import DB_PATH
+from .config import DB_PATH, SUBMISSION_LEASE_SECONDS
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -56,7 +56,13 @@ def initialize():
             c.execute('ALTER TABLE problems ADD COLUMN allow_workspace INTEGER NOT NULL DEFAULT 0')
         if 'name' not in {row['name'] for row in c.execute('PRAGMA table_info(testcases)')}:
             c.execute('ALTER TABLE testcases ADD COLUMN name TEXT')
-        c.execute("UPDATE submissions SET status='Finished', verdict='SE', reason='server_interrupted' WHERE status IN ('Compiling','Running')")
+        columns={r['name'] for r in c.execute('PRAGMA table_info(submissions)')}
+        for column,kind in [('lease_owner','TEXT'),('lease_expires_at','REAL'),('attempt_count','INTEGER NOT NULL DEFAULT 0')]:
+            if column not in columns: c.execute(f'ALTER TABLE submissions ADD COLUMN {column} {kind}')
+        c.execute("UPDATE submissions SET status='Finished', verdict='SE', reason='server_interrupted' WHERE status IN ('Compiling','Running') AND lease_owner IS NULL")
+        from benchmark.storage import initialize as initialize_benchmarks
+        initialize_benchmarks(c)
+        c.execute('PRAGMA user_version=2')
         c.execute("UPDATE commands SET status='Finished', result=? WHERE status IN ('Pending','Running')", (json.dumps({'error':'server_interrupted'}),))
 
 def problem(pid, hidden=False, include_deleted=False):
@@ -71,7 +77,7 @@ def problem(pid, hidden=False, include_deleted=False):
 
 def problems():
     with connect() as c:
-        return [dict(r) for r in c.execute('SELECT id,title,time_limit_ms,memory_limit_mb FROM problems WHERE deleted=0 ORDER BY id')]
+        return [dict(r) for r in c.execute('SELECT id,title,time_limit_ms,memory_limit_mb,allow_workspace FROM problems WHERE deleted=0 ORDER BY id')]
 
 def save_problem(p, pid=None):
     fields = ['title','description','input_description','output_description','time_limit_ms','memory_limit_mb','checker','samples','allow_workspace']
@@ -89,11 +95,12 @@ def save_problem(p, pid=None):
 def delete_problem(pid):
     with connect() as c: return c.execute('UPDATE problems SET deleted=1 WHERE id=? AND deleted=0',(pid,)).rowcount
 
-def create_submission(pid, code, source='human', run_id=None, snapshot=None):
+def create_submission(pid, code, source='human', run_id=None, snapshot=None, final=False, capacity=None):
     p = snapshot or problem(pid, True)
     if not p: raise KeyError(pid)
     with connect() as c:
         c.execute('BEGIN IMMEDIATE')
+        if capacity is not None and c.execute("SELECT COUNT(*) FROM submissions WHERE status='Pending'").fetchone()[0]>=capacity: raise OverflowError('Judge queue is full')
         attempt = None
         if run_id:
             r = c.execute('SELECT status FROM agent_runs WHERE id=?',(run_id,)).fetchone()
@@ -101,6 +108,9 @@ def create_submission(pid, code, source='human', run_id=None, snapshot=None):
             attempt = c.execute('SELECT COUNT(*)+1 FROM submissions WHERE run_id=?',(run_id,)).fetchone()[0]
         sid = c.execute('''INSERT INTO submissions(problem_id,run_id,attempt,source,language,source_code,created_at,status,total_tests,snapshot)
           VALUES(?,?,?,?,?,?,?,?,?,?)''',(pid,run_id,attempt,source,'cpp17',code,now(),'Pending',len(p['testcases']),json.dumps(p))).lastrowid
+        if final:
+            if not run_id: raise ValueError('Final submission requires Run')
+            c.execute("UPDATE agent_runs SET status='Judging',final_submission_id=? WHERE id=?",(sid,run_id))
     return sid
 
 def submission(sid, internal=False):
@@ -116,9 +126,14 @@ def submissions(limit=100):
     with connect() as c:
         return [dict(r) for r in c.execute('SELECT id,problem_id,run_id,attempt,source,created_at,status,verdict,runtime_ms,memory_kb,passed_tests,total_tests FROM submissions ORDER BY id DESC LIMIT ?',(limit,))]
 
-def update_submission(sid, **fields):
+def update_submission(sid, owner=None, **fields):
     if 'results' in fields: fields['results']=json.dumps(fields['results'])
-    with connect() as c: c.execute('UPDATE submissions SET '+','.join(k+'=?' for k in fields)+' WHERE id=?',list(fields.values())+[sid])
+    with connect() as c:
+        where='id=?'+(' AND lease_owner=? AND status!=\'Finished\'' if owner else '')
+        changed=c.execute('UPDATE submissions SET '+','.join(k+'=?' for k in fields)+' WHERE '+where,list(fields.values())+[sid]+([owner] if owner else [])).rowcount
+        if owner and not changed: raise ValueError('Submission lease lost')
+        if fields.get('status')=='Finished':
+            c.execute("UPDATE agent_runs SET status='Finished',ended_at=? WHERE final_submission_id=? AND status='Judging'",(now(),sid))
 
 def pending():
     with connect() as c: return [r[0] for r in c.execute("SELECT id FROM submissions WHERE status='Pending' ORDER BY id")]
@@ -126,7 +141,14 @@ def pending():
 def create_run(pid, source, metadata, snapshot):
     rid = uuid.uuid4().hex
     with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        uid=metadata.get('benchmark_unit_id')
+        if uid:
+            existing=c.execute('SELECT run_id FROM benchmark_units WHERE id=?',(uid,)).fetchone()
+            if not existing: raise KeyError(uid)
+            if existing['run_id']: return existing['run_id']
         c.execute('INSERT INTO agent_runs(id,problem_id,source,created_at,status,metadata,snapshot) VALUES(?,?,?,?,?,?,?)',(rid,pid,source,now(),'Created',json.dumps(metadata),json.dumps(snapshot)))
+        if uid:c.execute('UPDATE benchmark_units SET run_id=? WHERE id=?',(rid,uid))
     return rid
 
 def run(rid, internal=False):
@@ -167,3 +189,20 @@ def command(cid):
     if not r: return None
     d=dict(r); d['request']=json.loads(d['request']); d['result']=json.loads(d['result']) if d['result'] else None
     return d
+
+
+def claim_submission(owner,sid=None,lease_seconds=SUBMISSION_LEASE_SECONDS):
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        # Unknown execution after crash is terminal SE, not a silent model failure
+        # and not an automatic re-run that could overwrite an existing result.
+        c.execute("UPDATE submissions SET status='Finished',verdict='SE',reason='worker_lease_expired' WHERE status IN ('Compiling','Running') AND lease_expires_at<?",(time.time(),))
+        c.execute("UPDATE agent_runs SET status='Finished',ended_at=? WHERE status='Judging' AND final_submission_id IN (SELECT id FROM submissions WHERE status='Finished')",(now(),))
+        row=c.execute("SELECT id FROM submissions WHERE status='Pending'"+(' AND id=?' if sid is not None else '')+' ORDER BY id LIMIT 1',([sid] if sid is not None else [])).fetchone()
+        if not row:return None
+        c.execute("UPDATE submissions SET status='Compiling',lease_owner=?,lease_expires_at=?,attempt_count=attempt_count+1 WHERE id=?",(owner,time.time()+lease_seconds,row['id']))
+        return row['id']
+
+def renew_submission(sid,owner,lease_seconds=SUBMISSION_LEASE_SECONDS):
+    with connect() as c:
+        return c.execute("UPDATE submissions SET lease_expires_at=? WHERE id=? AND lease_owner=? AND status IN ('Compiling','Running')",(time.time()+lease_seconds,sid,owner)).rowcount

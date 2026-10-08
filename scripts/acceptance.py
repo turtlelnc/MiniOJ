@@ -3,6 +3,7 @@ import asyncio, json, time
 from pathlib import Path
 import httpx, websockets
 ROOT=Path(__file__).resolve().parent.parent
+(ROOT/'evidence').mkdir(exist_ok=True)
 TOKEN=(ROOT/'data/api-token').read_text().strip()
 c=httpx.Client(base_url='http://127.0.0.1:8000/api',headers={'X-MiniOJ-Token':TOKEN},timeout=90,trust_env=False)
 report=[]

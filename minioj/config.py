@@ -21,3 +21,13 @@ SOURCE_LIMIT = 256 * 1024
 DOCKER_CONTEXT = os.environ.get('MINIOJ_DOCKER_CONTEXT')
 if not DOCKER_CONTEXT and Path.home().joinpath('.colima/minioj/docker.sock').exists():
     DOCKER_CONTEXT = 'colima-minioj'
+
+SUBMISSION_LEASE_SECONDS=max(10,int(os.environ.get('MINIOJ_SUBMISSION_LEASE_SECONDS','60')))
+
+# Capture the code loaded by this server, including uncommitted new modules.
+import hashlib, platform
+_runtime_hash=hashlib.sha256()
+for _file in sorted([*(ROOT/'minioj').glob('*.py'),*(ROOT/'benchmark').rglob('*.py'),*(ROOT/'scripts').glob('container_*.py'),ROOT/'Dockerfile']):
+    _runtime_hash.update(str(_file.relative_to(ROOT)).encode());_runtime_hash.update(_file.read_bytes())
+SOURCE_FINGERPRINT=_runtime_hash.hexdigest()
+RUNTIME_INFORMATION={'python':platform.python_version(),'system':platform.system(),'machine':platform.machine(),'source_fingerprint':SOURCE_FINGERPRINT}
