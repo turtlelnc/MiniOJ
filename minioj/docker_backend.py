@@ -59,6 +59,7 @@ def available():
 def create_container(prefix='run', memory=512, start=True,image=None):
     name='minioj-'+prefix+'-'+uuid.uuid4().hex
     docker((['run','-d'] if start else ['create'])+['--name',name,'--label','minioj.managed=1','--label','minioj.instance='+str(config.DB_PATH),
+            *(['--label','minioj.test-session='+os.environ['MINIOJ_TEST_SESSION']] if os.environ.get('MINIOJ_TEST_SESSION') else []),
             '--network','none','--read-only','--cap-drop','ALL','--security-opt','no-new-privileges',
             '--user','1000:1000','--memory',f'{memory}m','--memory-swap',f'{memory}m','--cpus','1',
             '--pids-limit','64','--ulimit','nofile=128:128','--ulimit','core=0:0','--log-driver','none',
@@ -192,10 +193,11 @@ def parse_execution_report(raw):
         return report
     except (ValueError,TypeError,KeyError):return None
 
-def hard_execute(name,input_data,time_ms,memory_mb,output_limit=1048576):
+def hard_execute(name,input_data,time_ms,memory_mb,output_limit=1048576,*,wall_limit_ms=None):
+    wall_limit_ms=time_ms if wall_limit_ms is None else wall_limit_ms
     before=cgroup_metrics(name)
     argv=[config.DOCKER,*(['--context',config.DOCKER_CONTEXT] if config.DOCKER_CONTEXT else []),
-          'exec','-i',name,'python3','-S','-c',SUPERVISOR_SOURCE,str(time_ms),str(output_limit)]
+          'exec','-i',name,'python3','-S','-c',SUPERVISOR_SOURCE,str(time_ms),str(output_limit),str(wall_limit_ms)]
     start=time.monotonic();raw=bytearray();err=bytearray();watchdog=False
     with tempfile.TemporaryFile() as inp:
         inp.write(input_data);inp.seek(0)
@@ -207,7 +209,7 @@ def hard_execute(name,input_data,time_ms,memory_mb,output_limit=1048576):
                 while selector.get_map() or p.poll() is None:
                     # Supervisor owns contestant wall timeout. A failed/hung
                     # supervisor/transport is SE, not contestant TLE.
-                    if (time.monotonic()-start)*1000>time_ms+5000:
+                    if (time.monotonic()-start)*1000>wall_limit_ms+5000:
                         watchdog=True;break
                     for key,_ in selector.select(.005):
                         chunk=os.read(key.fd,65536)
@@ -243,9 +245,9 @@ class DockerJudgeSession:
             self.binary=docker(['exec',self.name,'head','-c','1048577','/workspace/main'])
             if len(self.binary)>1048576: raise DockerError('Compiler artifact exceeds 1 MiB')
         return result
-    def run(self,input_data,time_ms,memory_mb):
+    def run(self,input_data,time_ms,memory_mb,*,wall_limit_ms=None):
         name=create_container('test',memory_mb,image=self.image)
         try:
             docker(['exec','-i',name,'python3','-c',"import sys,os; b=sys.stdin.buffer.read(1048577); assert len(b)<=1048576; f=open('/workspace/main','wb'); f.write(b); f.close(); os.chmod('/workspace/main',0o555)"],self.binary)
-            return hard_execute(name,input_data,time_ms,memory_mb)
+            return hard_execute(name,input_data,time_ms,memory_mb,wall_limit_ms=wall_limit_ms)
         finally: remove_container(name)

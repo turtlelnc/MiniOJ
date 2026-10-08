@@ -1,5 +1,5 @@
 """Exec-only child launcher: avoids preexec_fn in the threaded server."""
-import json, os, resource, sys
+import json, os, resource, sys, signal
 
 def main():
     limits=json.loads(sys.argv[1]); argv=sys.argv[2:]
@@ -13,6 +13,10 @@ def main():
         resource.setrlimit(resource.RLIMIT_AS,(address,address))
         resource.setrlimit(resource.RLIMIT_NPROC,(64,64))
     # macOS RLIMIT_AS is not a dependable RSS bound, and NPROC is per host UID.
+    # Python ignores SIGPIPE/SIGXFSZ at startup. An exec-only launcher must
+    # restore their normal dispositions before handing control to user code.
+    for name in ('SIGPIPE','SIGXFZ','SIGXFSZ'):
+        if hasattr(signal,name):signal.signal(getattr(signal,name),signal.SIG_DFL)
     os.execv(argv[0],argv)
 
 if __name__=='__main__': main()

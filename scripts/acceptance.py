@@ -41,7 +41,7 @@ def main():
     pid=call('POST','/problems',json=problem)['id']
     public=call('GET',f'/problems/{pid}');assert 'testcases' not in public
     record('create_problem_hidden_data',problem_id=pid)
-    programs=[('AC',GOOD),('WA','int main(){}'),('TLE','int main(){while(true){}}'),('RE','#include <cstdlib>\nint main(){abort();}'),('CE','not c++'),('output_limit','#include <cstdio>\nint main(){while(true)puts("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");}'),('MLE','#include <cstdlib>\n#include <cstring>\n#include <unistd.h>\nint main(){while(1){char*p=(char*)malloc(1048576);if(!p)abort();memset(p,1,1048576);usleep(1000);}}')]
+    programs=[('SE','#include <unistd.h>\n#include <signal.h>\nint main(){kill(getppid(),SIGKILL);usleep(10000);}'),('AC',GOOD),('WA','int main(){}'),('TLE','int main(){while(true){}}'),('RE','#include <cstdlib>\nint main(){abort();}'),('CE','not c++'),('output_limit','#include <cstdio>\nint main(){while(true)puts("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");}'),('MLE','#include <cstdlib>\n#include <cstring>\n#include <unistd.h>\nint main(){while(1){char*p=(char*)malloc(1048576);if(!p)abort();memset(p,1,1048576);usleep(1000);}}')]
     for expected,code in programs:
         sid=call('POST','/submissions',json={'problem_id':pid,'source_code':code})['submission_id']
         s=wait_submission(sid)

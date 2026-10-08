@@ -1,13 +1,69 @@
 name: Tests
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.14'
-      - run: pip install -r requirements.lock
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install -r requirements.lock
       - run: python -m compileall -q minioj benchmark scripts
-      - run: python -m unittest discover -s tests -v
+      - name: Unit tests and 20 synchronized SIGXCPU repetitions
+        run: python scripts/ci_unit.py --output "$RUNNER_TEMP/minioj-artifacts/unit"
+      - name: Report unavailable unit results
+        if: always()
+        run: |
+          if [ ! -f "$RUNNER_TEMP/minioj-artifacts/unit/unit-summary.md" ]; then
+            echo 'Unit Tests: incomplete or not executed after an earlier failure; counts unavailable.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload sanitized unit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-results
+          path: ${{ runner.temp }}/minioj-artifacts/unit/*.json
+          if-no-files-found: warn
+          retention-days: 7
+  docker-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MINIOJ_IMAGE: minioj-sandbox:ci
+      # Linux uses the runner's existing Engine, never Colima.
+      MINIOJ_DOCKER_CONTEXT: default
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - run: python -m pip install -r requirements.lock
+      - name: Build sandbox once; reuse it for all cases and Fake Runs
+        run: docker build --tag "$MINIOJ_IMAGE" .
+      - name: Real Docker resources, Judge, recovery, and Fake benchmarks
+        run: python scripts/ci_docker.py --output "$RUNNER_TEMP/minioj-artifacts/docker"
+      - name: Report unavailable Docker results
+        if: always()
+        run: |
+          if [ ! -f "$RUNNER_TEMP/minioj-artifacts/docker/docker-summary.md" ]; then
+            echo 'Docker Integration / Benchmark: incomplete or not executed after an earlier failure; counts unavailable.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload sanitized Docker results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-results
+          path: ${{ runner.temp }}/minioj-artifacts/docker/*.json
+          if-no-files-found: warn
+          retention-days: 7

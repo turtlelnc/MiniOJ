@@ -181,10 +181,12 @@ class ResourceMetricsTests(unittest.TestCase):
         subprocess.run([sys.executable,'-O','-c',code],check=True)
 
     def test_local_self_sent_sigxcpu_is_not_timeout(self):
-        import sys
-        from minioj.runner import LocalRunner
-        r=LocalRunner().run([sys.executable,'-c','import os,signal;os.kill(os.getpid(),signal.SIGXCPU)'],'.',time_limit_ms=300)
+        from runner_support import signaled_run
+        r,ready=signaled_run()
         self.assertIsNone(r.reason)
+        self.assertEqual(r.termination_signal,signal.SIGXCPU)
+        self.assertEqual(r.returncode,-signal.SIGXCPU)
+        self.assertLess(ready['ready_cpu_ms'],10000)
         self.assertEqual(execution_verdict(r,b'','exact'),'RE')
 
     def test_cgroup_reader_has_separate_uid_without_new_capabilities(self):

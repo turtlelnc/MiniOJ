@@ -63,13 +63,13 @@ assert r.container_baseline_memory_kb>normal.container_baseline_memory_kb+7*1024
 assert r.container_peak_memory_kb>normal.container_peak_memory_kb+6*1024,r
 record('tmpfs_counted_as_container_memory',r)
 
-forks='#include <unistd.h>\n#include <sys/wait.h>\n#include <cerrno>\nint main(){int failed=0;for(int i=0;i<100;i++){int p=fork();if(p==0){usleep(100000);_exit(0);}if(p<0)failed++;}while(wait(0)>0){}return failed>0?0:1;}'
+forks='#include <unistd.h>\n#include <sys/wait.h>\n#include <cerrno>\nint main(){int gate[2];if(pipe(gate))return 2;int failed=0;for(int i=0;i<100;i++){int p=fork();if(p==0){close(gate[1]);char c;read(gate[0],&c,1);_exit(0);}if(p<0)failed++;}close(gate[0]);close(gate[1]);while(wait(0)>0){}return failed>0?0:1;}'
 r=run(forks)
 assert r.returncode==0 and r.reason is None,r
 assert r.cgroup['pids']['max_delta']>0,r
 record('new_pid_failure_with_successful_exit',r)
 
-prepare=lambda name:docker(['exec',name,'python3','-S','-c',"import os,time\nfor i in range(100):\n try:\n  pid=os.fork()\n except OSError:continue\n if pid==0:time.sleep(.15);os._exit(0)\nwhile True:\n try:os.wait()\n except ChildProcessError:break"],timeout=5)
+prepare=lambda name:docker(['exec',name,'python3','-S','-c',"import os\nr,w=os.pipe()\nfor i in range(100):\n try:\n  pid=os.fork()\n except OSError:continue\n if pid==0:os.close(w);os.read(r,1);os._exit(0)\nos.close(r);os.close(w)\nwhile True:\n try:os.wait()\n except ChildProcessError:break"],timeout=5)
 r=run('int main(){}',prepare)
 assert r.reason is None and r.returncode==0,r
 assert r.cgroup['before']['pids']['max']>0,r

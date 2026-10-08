@@ -308,7 +308,7 @@ Docker 测试点继续使用独立容器、相同硬内存/无 swap/PID/CPU 限�
 - `cgroup.before` / `cgroup.after` 保存原始快照；memory、cpu、pids 分别命名。对应增量仅在前后均可读且计数未回退时计算，否则为 null。计量读取器使用容器内 UID 0（不增加任何 capability），防止选手通过同 UID 的 /proc 文件篡改计量输出；选手仍始终是 UID 1000。读取器自身可能影响 PID 事件，因此 PID 增量仅作诊断，不能证明选手因 PID 限制退出。
 - OOM 导致整个容器停止时，cgroup 文件可能不可读：峰值和增量为 null，以保留的 `container_state.OOMKilled` 为 MLE 证据；不伪造进程信号。正常退出、监督器主动超时/输出限制终止而容器仍存活时仍能读取内核峰值。它包含初始化期峰值，未重置为仅选手执行区间。
 
-退出分类：独立记录选手 `exit_code` / `termination_signal` 和 `transport_exit_code`。正常非零退出或实际异常信号为 RE；输出超限为 RE/output_limit；监督器实际观察的 wall 超时为 TLE/timeout；内核 CPU 限制信号且 wait4 CPU 时间达到对应软限额为 TLE/cpu_timeout（主动发送 SIGXCPU 不足以确认 CPU 超时）。内存 OOM kill 增量或 Docker OOMKilled 为 MLE；单独 memory.max、pids.max、stderr 中的 bad_alloc 或 Docker CLI 137 均不足以推断资源终止。监督器缺失/损坏、Docker 传输错误、无 OOM 证据的意外容器退出为 SE。OOM 可能杀死监督器或 PID 1，因此没有直接的选手 wait 状态时信号和退出码均为 null。
+退出分类：独立记录选手 `exit_code` / `termination_signal` 和 `transport_exit_code`。正常非零退出或实际异常信号为 RE；输出超限为 RE/output_limit；监督器实际观察的 wall 超时为 TLE/timeout；监督器观察选手进程 CPU 时钟或实际 CPU 用量达到预算为 TLE/cpu_timeout（主动发送 SIGXCPU 不足以确认 CPU 超时）。内存 OOM kill 增量或 Docker OOMKilled 为 MLE；单独 memory.max、pids.max、stderr 中的 bad_alloc 或 Docker CLI 137 均不足以推断资源终止。监督器缺失/损坏、Docker 传输错误、无 OOM 证据的意外容器退出为 SE。OOM 可能杀死监督器或 PID 1，因此没有直接的选手 wait 状态时信号和退出码均为 null。
 
 Benchmark 新字段兼容旧的 solve_rate、pass@1 和 token 均值：
 
@@ -345,3 +345,33 @@ MINIOJ_BENCHMARK_PROTOCOL=iterative .venv/bin/python scripts/benchmark_acceptanc
 ```
 
 本轮只使用 Fake Adapter，未调用付费模型 API。实际测试数量、结果、实验 ID 和限制见本轮交付记录；这里的命令不是对未执行测试的通过声明。
+
+### 第四轮：独立 CI 与真实 Docker 边界验证
+
+`.github/workflows/tests.yml` 有两个独立 Job，均使用 Ubuntu 24.04 / Python 3.14。`unit` 运行 compileall、完整 unittest 和 20 次同步 SIGXCPU 回归（10 分钟上限）；`docker-integration` 复用 runner 的 Docker Engine，构建一次 Alpine 沙箱镜像，再运行真实资源、安全、判题、队列崩溃恢复，以及 final_only / iterative 各 18 个 Fake Adapter Run（20 分钟上限）。没有 Colima 启动步骤或付费模型调用。
+
+本地复用 CI 入口：
+
+```sh
+python3 -m compileall -q minioj benchmark scripts
+python3 -m unittest discover -s tests -v
+python3 scripts/ci_unit.py --output evidence/round4/unit
+# 在已有 Docker Engine 的 Linux 环境，先安装 requirements.lock：
+docker build -t minioj-sandbox:ci .
+MINIOJ_IMAGE=minioj-sandbox:ci MINIOJ_DOCKER_CONTEXT=default \
+  python3 scripts/ci_docker.py --output evidence/round4/docker
+```
+
+本轮应重建沙箱镜像，使工作台命令也使用更新后的 LocalRunner。Docker 入口拒绝占用中的 8000/8001 端口；数据库、随机认证令牌、原始日志和导出位于独立临时目录。入口检测实际 cgroup v2、内存峰值/OOM/PID/CPU 指标及 OOM score 调整能力，缺少必需能力会明确失败。脚本有分阶段超时和 15 分钟内部预算，清理只匹配本次随机 session 标签的容器，并检查服务端口释放。生产/开发数据库不参与测试。
+
+Job Summary 显示单元测试 passed/failed/skipped、Docker 各验收阶段（失败时带源码位置和异常类型），以及 Benchmark 的 planned/completed、AC/WA/其他失败和指标校验结果。artifacts 只上传白名单 JSON：测试 ID、计数、资源数值、已知原因、指标汇总和清理结果；不上传原始 stderr/stdout、数据库、manifest、模型消息、隐藏测试或认证信息。失败时同样保存已观测到的脱敏结果，不能用无条件 skip 变绿。
+
+原失败的 300 ms 用例同时覆盖 Python launcher、解释器和调度开销；尚未 exec 到测试程序时，触发墙钟限制本身是正确行为，不能据此要求 RE。现在用原生程序写 ready、控制线程回 ack 后主动发信号，并断言实际用时/CPU 均未达到宽裕的 10 秒测试预算；独立用例仍验证 50/100 ms 的真实墙钟限制和 1 秒 CPU 限制。20 次重复是回归证据，不是无竞态的证明。
+
+LocalRunner 不再把调用方共享 cgroup 的 CPU/OOM/内存归给选手；使用 wait4 保存实际退出状态及 CPU 用量，避免 poll 提前回收丢失证据。墙钟起点仍在 launcher 之前，未人为扣除启动时间。Python launcher 在 exec 前恢复 SIGPIPE/SIGXFSZ 默认处理；等于输出上限的正常输出不会误报超限。
+
+真实 Docker 测试还发现 RLIMIT_CPU 的内核 tick 计量可在 wait4 用量略低于整数秒时发送 SIGXCPU。监督器改为从选手自己的 Linux process CPU clock 明确观察 CPU 预算后终止（实际信号为 SIGKILL），RLIMIT_CPU 保留为晚一秒的内核后备；CPU clock 不可用导致 SE，不用容器总 CPU 或容差猜测。该时钟接口见 [Linux clock_getcpuclockid 文档](https://man7.org/linux/man-pages/man3/clock_getcpuclockid.3.html)。LocalRunner 使用进程树采样预算和 wait4，内核 guard 同样后移一秒；采样仍有时间/峰值盲区。Docker 公开 CPU 指标仍是容器增量，进程 RSS 仍不可用，内存口径不变。主动 SIGXCPU、SIGKILL、SIGXFSZ、exit(137)、真实超时、输出边界、OOM、真实 Docker exec 错误和监督器故障分别验证，不从退出码或错误文本伪造信号。
+
+推送被授权后，可用 `gh run list --workflow tests.yml --commit <SHA>` 查对应提交，再用 `gh run watch <run-id> --exit-status` 和 Job Summary 验证两个 Job。没有对应提交的远端成功结果，不能声称 GitHub Actions 已通过。
+
+额外的确定性竞态测试在选手退出后故意延迟 LocalRunner 的观测；Docker 则由程序 SIGSTOP 监督器、主动 SIGXCPU 退出，再由测试助手延迟恢复监督器。两者均检查实际退出信号不会被监督侧的墙钟延迟覆盖。PID 压力夹具用管道门闩保留子进程，避免 sleep 到期与 fork 竞争导致 PID 事件偶发消失。

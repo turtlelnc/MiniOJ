@@ -1,5 +1,5 @@
 from pathlib import Path
-import os, secrets, shutil
+import os, secrets, shutil, sys
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.environ.get('MINIOJ_DATA', ROOT / 'data')).resolve()
@@ -19,7 +19,7 @@ OUTPUT_LIMIT = 1024 * 1024
 SOURCE_LIMIT = 256 * 1024
 
 DOCKER_CONTEXT = os.environ.get('MINIOJ_DOCKER_CONTEXT')
-if not DOCKER_CONTEXT and Path.home().joinpath('.colima/minioj/docker.sock').exists():
+if sys.platform=='darwin' and not DOCKER_CONTEXT and Path.home().joinpath('.colima/minioj/docker.sock').exists():
     DOCKER_CONTEXT = 'colima-minioj'
 
 SUBMISSION_LEASE_SECONDS=max(10,int(os.environ.get('MINIOJ_SUBMISSION_LEASE_SECONDS','60')))
