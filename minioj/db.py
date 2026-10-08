@@ -129,8 +129,8 @@ def submissions(limit=100):
 def update_submission(sid, owner=None, **fields):
     if 'results' in fields: fields['results']=json.dumps(fields['results'])
     with connect() as c:
-        where='id=?'+(' AND lease_owner=? AND status!=\'Finished\'' if owner else '')
-        changed=c.execute('UPDATE submissions SET '+','.join(k+'=?' for k in fields)+' WHERE '+where,list(fields.values())+[sid]+([owner] if owner else [])).rowcount
+        where='id=?'+(' AND lease_owner=? AND status!=\'Finished\' AND lease_expires_at>=?' if owner else '')
+        changed=c.execute('UPDATE submissions SET '+','.join(k+'=?' for k in fields)+' WHERE '+where,list(fields.values())+[sid]+([owner,time.time()] if owner else [])).rowcount
         if owner and not changed: raise ValueError('Submission lease lost')
         if fields.get('status')=='Finished':
             c.execute("UPDATE agent_runs SET status='Finished',ended_at=? WHERE final_submission_id=? AND status='Judging'",(now(),sid))
@@ -205,4 +205,4 @@ def claim_submission(owner,sid=None,lease_seconds=SUBMISSION_LEASE_SECONDS):
 
 def renew_submission(sid,owner,lease_seconds=SUBMISSION_LEASE_SECONDS):
     with connect() as c:
-        return c.execute("UPDATE submissions SET lease_expires_at=? WHERE id=? AND lease_owner=? AND status IN ('Compiling','Running')",(time.time()+lease_seconds,sid,owner)).rowcount
+        return c.execute("UPDATE submissions SET lease_expires_at=? WHERE id=? AND lease_owner=? AND status IN ('Compiling','Running') AND lease_expires_at>=?",(time.time()+lease_seconds,sid,owner,time.time())).rowcount

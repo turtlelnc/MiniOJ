@@ -55,3 +55,9 @@ class QueueTests(unittest.TestCase):
    while db.submission(sid)['status']!='Finished' and time.monotonic()<deadline:time.sleep(.02)
    self.assertEqual(db.submission(sid)['verdict'],'AC')
   finally:q.close()
+
+ def test_expired_worker_cannot_renew_or_publish_before_recovery(self):
+  sid=db.create_submission(self.pid,GOOD);db.claim_submission('expired',sid)
+  db.update_submission(sid,owner='expired',lease_expires_at=time.time()-1)
+  self.assertEqual(db.renew_submission(sid,'expired'),0)
+  with self.assertRaises(ValueError):db.update_submission(sid,owner='expired',status='Finished',verdict='AC')
