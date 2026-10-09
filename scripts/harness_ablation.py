@@ -82,10 +82,11 @@ def run(plan, legacy, output, real=False, guard=None, max_runs=25):
         bids={}
         for condition,definition in CONDITIONS.items():
             model={'provider':'deepseek','model':plan['shared']['model']} if real else {'provider':'fake','model':'harness-smoke','codes':codes}
-            spec={'name':f'harness_ablation_v1-{condition}','problems':pids,'models':[model],'seeds':[1],
+            spec={'name':f"{plan['study']}-{condition}",'problems':pids,'models':[model],'seeds':[1],
                   'protocol':'final_only','temperature':plan['shared']['temperature'],'max_tokens':plan['shared']['max_tokens'],
                   'limits':{'max_model_calls':definition['max_model_calls'],'max_tool_calls':16,'max_wall_time_seconds':180},
                   'system_prompt':SYSTEM_PROMPT,'harness':{'condition':condition,'sandbox_policy':policy}}
+            if plan['version']==2:spec['harness']['disclosure_version']=2
             bids[condition]=runner.api('POST','/benchmarks',json=spec)['id']
         (output/'experiment_ids.json').write_text(json.dumps(bids,indent=2))
         executed=0
@@ -106,6 +107,7 @@ def run(plan, legacy, output, real=False, guard=None, max_runs=25):
             assert actual['environment_information']['image_id']==plan['shared']['image_id']
             assert actual['tool_schema']==__import__('benchmark.protocol',fromlist=['tools']).tools('final_only')
             assert actual['harness']['sandbox_policy']==policy
+            assert actual['harness'].get('disclosure_version',1)==plan['version']
             export(result,output/condition)
             assert runner.api('GET',f'/benchmarks/{bid}/export/json')==result
             response=runner.client.get(f'/benchmarks/{bid}/export/csv');response.raise_for_status()
@@ -130,7 +132,7 @@ def run(plan, legacy, output, real=False, guard=None, max_runs=25):
                 'stop_reason':guard.stop_reason if guard else None,
                 'groups':{c:r['summary'] for c,r in results.items()},
                 'json_csv_consistent':True,'private_trajectories_retained':True,
-                'interpretation':'Fake verifies implementation; it provides no evidence for transparency improving a real model.'}
+                'interpretation':('Exploratory independent real Runs; descriptive differences do not establish causal or significant effects.' if real else 'Fake verifies implementation; it provides no evidence for transparency improving a real model.')}
         (output/'fake_smoke.json' if not real else output/'real_results.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
         return report
     except BaseException as exc:

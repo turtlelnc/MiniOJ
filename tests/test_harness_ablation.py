@@ -158,6 +158,40 @@ class HarnessTests(unittest.TestCase):
         validate_model_history([{'role':'user','content':'{"id":1}'}, {'role':'assistant','content':None,'tool_calls':[]}])
         with self.assertRaises(AssertionError):validate_model_history([{'role':'user','content':'{"testcases":[]}' }])
 
+    def test_v2_path_disclosure_preserves_controls_and_v1(self):
+        from benchmark.harness import validate_harness
+        messages=[{'role':'system','content':SYSTEM_PROMPT},{'role':'user','content':'problem'}]
+        for c,definition in CONDITIONS.items():
+            limits={'max_model_calls':definition['max_model_calls'],'max_tool_calls':16,'max_wall_time_seconds':180}
+            harness={'condition':c,'sandbox_policy':sandbox_policy()}
+            manifest={'harness':harness,'limits':limits}
+            r={'model_calls':1,'tool_calls':0}
+            old=request_messages(messages,manifest,copy.deepcopy(r),PROBLEM,170)
+            self.assertNotIn('[File Tool Paths]',str(old))
+            harness['disclosure_version']=2
+            self.assertEqual(validate_harness(harness,limits),harness)
+            new=request_messages(messages,manifest,copy.deepcopy(r),PROBLEM,170)
+            if c in 'AB':self.assertEqual(old,new)
+            else:
+                self.assertIn('paths MUST be relative to /workspace',new[1]['content'])
+                self.assertEqual(new[1]['content'].split('\n\n[File Tool Paths]')[0],old[1]['content'])
+            for bad in (None,True,0,3,'2'):
+                harness['disclosure_version']=bad
+                with self.assertRaises(ValueError):validate_harness(harness,limits)
+
+    def test_v2_frozen_plan_and_legacy_hash(self):
+        root=Path(__file__).resolve().parents[1]
+        old=json.loads((root/'benchmark/experiments/harness_ablation_v1/execution_plan.json').read_text())
+        new=json.loads((root/'benchmark/experiments/harness_ablation_v2/execution_plan.json').read_text())
+        self.assertEqual(old['plan_id'],'43c5fa6bf0d6064c6c16053d0e19d3e6f1e9d7ff6ba88eb478f08a9899679665')
+        self.assertEqual(validate_plan(new)['planned_units'],25)
+        self.assertEqual(old['schedule'],new['schedule']);self.assertEqual(old['problems'],new['problems'])
+        shared=copy.deepcopy(new['shared']);self.assertEqual(shared.pop('disclosure_version'),2)
+        self.assertEqual(shared,old['shared'])
+        bad=copy.deepcopy(new);bad['shared']['disclosure_version']=1
+        bad['plan_id']=sha({k:v for k,v in bad.items() if k!='plan_id'})
+        with self.assertRaises(ValueError):validate_plan(bad)
+
     def test_preregistered_plan_and_random_allocation(self):
         p=Path(__file__).resolve().parents[1]/'benchmark/experiments/harness_ablation_v1/execution_plan.json'
         plan=json.loads(p.read_text());self.assertEqual(validate_plan(plan)['maximum_model_calls'],180)

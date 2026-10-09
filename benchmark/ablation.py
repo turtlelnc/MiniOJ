@@ -6,7 +6,8 @@ from .harness import CONDITIONS, sha
 from .protocol import SYSTEM_PROMPT, tools
 
 
-def build_plan(experiment, order_seed=20261009):
+def build_plan(experiment, order_seed=20261009, version=1):
+    if type(version) is not int or version not in (1, 2):raise ValueError("Unsupported plan version")
     m=experiment['manifest']; problems=[]
     for p in m['problem_snapshots']:
         # No hidden text in the public preregistration/plan.
@@ -31,11 +32,18 @@ def build_plan(experiment, order_seed=20261009):
           'maximum_model_calls':sum(CONDITIONS[x['condition']]['max_model_calls'] for x in schedule),
           'observed_token_stop_cap':350000,'missing_usage_policy':'stop before next model call',
           'paid_execution_default':False,'seed_effective':'unknown; provider does not promise seeded sampling'}
+    if version == 2:
+        plan.update(version=2, study='harness_ablation_v2')
+        plan['shared']['disclosure_version']=2
+        plan['intervention']='Only C/D/E disclose relative read_file/write_file paths; A/B prompts, schema, fail-fast and enforcement unchanged. Fresh independent runs, no pooling with v1.'
     plan['plan_id']=sha(plan)
     return plan
 
 
 def validate_plan(plan, experiment=None):
+    version=plan.get('version')
+    if type(version) is not int or version not in (1, 2) or plan.get('study')!=f'harness_ablation_v{version}':raise ValueError('Unsupported study')
+    if version==2 and plan['shared'].get('disclosure_version')!=2:raise ValueError('Disclosure version mismatch')
     original={k:v for k,v in plan.items() if k!='plan_id'}
     if sha(original)!=plan.get('plan_id'):raise ValueError('Plan hash mismatch')
     if plan['conditions']!=CONDITIONS:raise ValueError('Condition drift')
@@ -49,7 +57,7 @@ def validate_plan(plan, experiment=None):
         raise ValueError('Invalid 25-Run allocation')
     count=sum(CONDITIONS[x['condition']]['max_model_calls'] for x in plan['schedule'])
     if plan['planned_units']!=25 or plan['maximum_model_calls']!=count:raise ValueError('Scale mismatch')
-    if experiment and build_plan(experiment,plan['random_order_seed'])!=plan:raise ValueError('Historical frozen inputs differ')
+    if experiment and build_plan(experiment,plan['random_order_seed'],version)!=plan:raise ValueError('Historical frozen inputs differ')
     return {'status':'passed','plan_id':plan['plan_id'],'planned_units':25,'maximum_model_calls':count}
 
 

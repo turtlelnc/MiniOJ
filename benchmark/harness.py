@@ -57,8 +57,11 @@ def sandbox_policy():
 
 
 def validate_harness(value, limits):
-    if not isinstance(value, dict) or set(value) != {'condition', 'sandbox_policy'}:
+    if not isinstance(value, dict) or not {'condition', 'sandbox_policy'} <= set(value) or set(value) - {'condition', 'sandbox_policy', 'disclosure_version'}:
         raise ValueError('harness requires condition and frozen sandbox_policy')
+    version = value.get('disclosure_version', 1)
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError('Unsupported disclosure version')
     condition = value['condition']
     if condition not in CONDITIONS or limits['max_model_calls'] != CONDITIONS[condition]['max_model_calls']:
         raise ValueError('Condition/model budget mismatch')
@@ -100,6 +103,10 @@ def request_messages(messages, manifest, record, problem, remaining_wall):
                      '\nIsolated Linux container; restricted filesystem; no network. Final submission source: main.cpp. '
                      'Container memory includes resident processes and tmpfs; process RSS is a separate sampled limit. '
                      'Shell exit(0) can hide an earlier command failure: use && to gate dependent commands.')
+        if harness.get('disclosure_version', 1) == 2:
+            parts.append('[File Tool Paths]\nread_file and write_file paths MUST be relative to /workspace. '
+                         'Use problem.json or main.cpp, never /workspace/problem.json or /workspace/main.cpp. '
+                         'Absolute paths may be used inside terminal shell commands.')
     content = '\n\n'.join(parts)
     event = {'model_call': record['model_calls'], 'at_unix': time.time(),
              'condition': harness['condition'], 'budget': budget,

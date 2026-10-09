@@ -414,3 +414,5 @@ python scripts/harness_ablation.py --real --authorize-paid \
 ```
 
 The observed-token cap stops additional calls; the last response can overshoot it. Missing usage also stops further calls. DeepSeek seed effectiveness is unknown, so repeats are not deterministic pairs. A 75-Run extension requires a new preregistration and authorization. The Fake loop proves implementation behavior, not that transparency improves the real model.
+
+Phase 6 路径说明复测：冻结计划见 `benchmark/experiments/harness_ablation_v2/preregistration.md`。显式传入 `--plan benchmark/experiments/harness_ablation_v2/execution_plan.json`；默认仍为 v1。v2 仅修正 C/D/E 的相对文件路径说明，A/B 与隔离限制保持不变，历史结果不合并。
