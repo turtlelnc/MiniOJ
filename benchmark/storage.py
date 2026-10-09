@@ -47,6 +47,10 @@ def create(spec):
   from .harness import validate_harness
   if protocol!='final_only':raise ValueError('Ablation requires final_only')
   manifest['harness']=validate_harness(spec['harness'],limits)
+  if manifest['harness'].get('study')=='termination_ablation_v1':
+   from .termination import SYSTEM
+   if manifest['system_prompt']!=SYSTEM or temperature!=0 or max_tokens!=4096 or len(models)!=1 or seeds!=[1,2]:
+    raise ValueError('Phase 7 common protocol/model settings drift')
  from minioj.docker_backend import docker,DockerError
  if config.JUDGE_BACKEND=='docker':
   try:manifest['environment_information'].update(json.loads(docker(['image','inspect',config.IMAGE,'--format','{"image_id":{{json .Id}},"architecture":{{json .Architecture}},"os":{{json .Os}}}'])))

@@ -416,3 +416,21 @@ python scripts/harness_ablation.py --real --authorize-paid \
 The observed-token cap stops additional calls; the last response can overshoot it. Missing usage also stops further calls. DeepSeek seed effectiveness is unknown, so repeats are not deterministic pairs. A 75-Run extension requires a new preregistration and authorization. The Fake loop proves implementation behavior, not that transparency improves the real model.
 
 Phase 6 路径说明复测：冻结计划见 `benchmark/experiments/harness_ablation_v2/preregistration.md`。显式传入 `--plan benchmark/experiments/harness_ablation_v2/execution_plan.json`；默认仍为 v1。v2 仅修正 C/D/E 的相对文件路径说明，A/B 与隔离限制保持不变，历史结果不合并。
+
+## Phase 7：终止策略 2×2 实验
+
+预算可见性与提交提醒独立开关，四组共享最小工具协议、相对路径约定和真实沙盒限制。预注册 5 道 Phase 6 冻结题 × 4 组 × 2 次 = 40 独立 Run；各 Run 固定 6 次模型调用、50 次工具调用、300 秒，temperature=0、max_tokens=4096。工具定义和 Judge 不变。计划不会运行时洗牌，也不将事后 AC 改写为原始成功。
+
+无需模型密钥的离线验证：
+
+```bash
+python3 scripts/phase7.py --validate
+python3 scripts/phase7.py --compare-prompts
+python3 scripts/phase7.py --dry-run
+# Docker 与原始固定镜像可用时；使用全新独立证据目录
+.venv/bin/python scripts/phase7.py --fake-smoke --output evidence/termination_ablation_v1/my-fake-check
+```
+
+离线命令不加载生产配置或模型认证信息；Fake 模式不构造真实模型适配器。已有结果目录会被拒绝覆盖。当前阶段不执行付费实验；未来需用户另行明确授权，并显式指定 `--real --authorize-paid --plan-id` 与三个总量上限。理论最大 240 次模型调用，已观察 token 停止阈值 600000，非固定账单保证。
+
+[预注册](benchmark/experiments/termination_ablation_v1/preregistration.md) · [验证报告与未来执行命令](docs/phase7-validation.md)。源码修改时点缺少终端版本证据时为 null；独立复判的来源校验失败亦为未知。

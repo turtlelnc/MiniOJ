@@ -57,6 +57,9 @@ def sandbox_policy():
 
 
 def validate_harness(value, limits):
+    if isinstance(value, dict) and value.get('study') == 'termination_ablation_v1':
+        from .termination import validate_harness as validate
+        return validate(value, limits)
     if not isinstance(value, dict) or not {'condition', 'sandbox_policy'} <= set(value) or set(value) - {'condition', 'sandbox_policy', 'disclosure_version'}:
         raise ValueError('harness requires condition and frozen sandbox_policy')
     version = value.get('disclosure_version', 1)
@@ -82,6 +85,9 @@ def request_messages(messages, manifest, record, problem, remaining_wall):
     harness = manifest.get('harness')
     if not harness:
         return messages
+    if harness.get('study') == 'termination_ablation_v1':
+        from .termination import request_messages as request
+        return request(messages, manifest, record, problem, remaining_wall)
     condition = CONDITIONS[harness['condition']]
     limits = manifest['limits']; parts = []; budget = None
     if condition['budget_visible']:

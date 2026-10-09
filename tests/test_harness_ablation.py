@@ -29,13 +29,16 @@ class Model:
 
 
 class HarnessTests(unittest.TestCase):
-    def execute(self, condition, sequences, result=None, submission_verdict="AC", command_failure=None):
+    def execute(self, condition, sequences, result=None, submission_verdict="AC", command_failure=None, phase7=False):
         policy=sandbox_policy(); definition=CONDITIONS[condition]
         manifest={'models':[{'provider':'fake','model':'fixture'}],'system_prompt':SYSTEM_PROMPT,
                   'tool_schema':tools('final_only'),'protocol':'final_only','temperature':.2,'max_tokens':2048,
                   'limits':{'max_model_calls':definition['max_model_calls'],'max_tool_calls':16,'max_wall_time_seconds':180},
                   'harness':{'condition':condition,'sandbox_policy':policy},
                   'problem_snapshots':[{'testcases':[{'input':'SECRET_HIDDEN','expected_output':'SECRET_EXPECTED'}]}]}
+        if phase7:
+            from benchmark.termination import SYSTEM, LIMITS, STUDY, implementation_hashes
+            manifest.update(system_prompt=SYSTEM,limits=LIMITS,harness={'study':STUDY,'condition':condition,'sandbox_policy':policy,'implementation_sha256':implementation_hashes()})
         unit={'id':'u','run_id':None,'status':'Pending','model_index':0,'seed':1,'record':{'model_calls':0,'tool_calls':0}}
         runner=Runner('http://127.0.0.1:1','test');saved=[];model=Model(sequences)
         def api(method,path,**kwargs):

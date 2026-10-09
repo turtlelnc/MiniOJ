@@ -1,0 +1,18 @@
+{
+  "A": {
+    "budget_visible": false,
+    "submit_reminder": false
+  },
+  "B": {
+    "budget_visible": true,
+    "submit_reminder": false
+  },
+  "C": {
+    "budget_visible": false,
+    "submit_reminder": true
+  },
+  "D": {
+    "budget_visible": true,
+    "submit_reminder": true
+  }
+}

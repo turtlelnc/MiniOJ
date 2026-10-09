@@ -133,6 +133,9 @@ class Runner:
    # Local DB/runtime access is mandatory; unavailable remote capture is unknown.
    if rid and manifest.get('harness') and not final and not record.get('termination_code'):
     record['termination_code']=capture_snapshot(rid)
+   if manifest.get('harness',{}).get('study')=='termination_ablation_v1':
+    from .termination_metrics import trajectory
+    record.update(trajectory(record,manifest['limits']))
    try:
     self.checkpoint(bid,unit,record,'Finished' if final else 'Failed',rid)
    finally:

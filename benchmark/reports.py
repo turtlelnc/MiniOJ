@@ -3,9 +3,13 @@ from pathlib import Path
 from .metrics import token_usage
 FIELDS=['unit_id','problem_id','model_index','seed_requested','seed_effective','protocol','run_id','submission_id','verdict','failure_category','error','model_calls','tool_calls','wall_time_seconds','input_tokens','output_tokens','total_tokens','status']
 def csv_text(experiment):
- stream=io.StringIO();writer=csv.DictWriter(stream,fieldnames=FIELDS);writer.writeheader()
+ fields=FIELDS
+ if experiment['manifest'].get('harness',{}).get('study')=='termination_ablation_v1':
+  from .termination_metrics import TRAJECTORY_FIELDS
+  fields=FIELDS+TRAJECTORY_FIELDS+['code_change_observation']
+ stream=io.StringIO();writer=csv.DictWriter(stream,fieldnames=fields);writer.writeheader()
  for u in experiment['units']:
-  r={**u['record'],'run_id':u['run_id'],'unit_id':u['id'],'status':u['status']};usage=token_usage(r);r.update(usage);r['total_tokens']=usage['input_tokens']+usage['output_tokens'] if usage.get('input_tokens') is not None and usage.get('output_tokens') is not None else None;writer.writerow({k:r.get(k) for k in FIELDS})
+  r={**u['record'],'run_id':u['run_id'],'unit_id':u['id'],'status':u['status']};usage=token_usage(r);r.update(usage);r['total_tokens']=usage['input_tokens']+usage['output_tokens'] if usage.get('input_tokens') is not None and usage.get('output_tokens') is not None else None;writer.writerow({k:r.get(k) for k in fields})
  return stream.getvalue()
 def export(experiment,directory):
  directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
