@@ -375,3 +375,42 @@ LocalRunner 不再把调用方共享 cgroup 的 CPU/OOM/内存归给选手；使
 推送被授权后，可用 `gh run list --workflow tests.yml --commit <SHA>` 查对应提交，再用 `gh run watch <run-id> --exit-status` 和 Job Summary 验证两个 Job。没有对应提交的远端成功结果，不能声称 GitHub Actions 已通过。
 
 额外的确定性竞态测试在选手退出后故意延迟 LocalRunner 的观测；Docker 则由程序 SIGSTOP 监督器、主动 SIGXCPU 退出，再由测试助手延迟恢复监督器。两者均检查实际退出信号不会被监督侧的墙钟延迟覆盖。PID 压力夹具用管道门闩保留子进程，避免 sleep 到期与 fork 竞争导致 PID 事件偶发消失。
+
+### Harness transparency ablation (Phase 6)
+
+This offline research harness independently controls budget disclosure, sandbox disclosure and model-call budget. A/B/C/D allow 6 model calls; E allows 12. Every condition keeps final_only, 16 tools, 180 seconds and the same Docker/Judge limits. The [preregistration](benchmark/experiments/harness_ablation_v1/preregistration.md) and [frozen execution plan](benchmark/experiments/harness_ablation_v1/execution_plan.json) define a randomized 25-Run exploratory study. The earlier 4/15 original score and 11/11 separate post-hoc AC are never rewritten.
+
+```bash
+python scripts/harness_ablation.py --validate
+python scripts/harness_ablation.py --dry-run
+python scripts/audit_legacy_runs.py --output evidence/harness_ablation_v1/legacy_audit.json
+python scripts/harness_ablation.py --fake-smoke --output evidence/harness_ablation_v1/new-docker-smoke
+# Set MINIOJ_IMAGE to the same pinned image before this Docker boundary check.
+python scripts/harness_snapshot_acceptance.py --output evidence/harness_ablation_v1/new-snapshot-check.json
+```
+
+These commands make no paid provider calls and do not read API keys. Fake smoke requires the original private evidence and pinned Docker image; it starts its own loopback server and separate database, runs 25 independent reference-code Agents against real Docker Judge, validates JSON/CSV exports, and cleans up its services/containers. Missing Docker or snapshots is an explicit failure, not a silent success. Output directories must be new. Private trajectories, source snapshots and databases stay in ignored `evidence/`; do not publish them. On another machine, historical evidence can be unavailable; the audit reports that state rather than inventing data.
+
+Budget notices are temporary system messages, never accumulated history. The remaining model-response count includes the current response, so its final_submit is allowed. Sandbox disclosures distinguish API/source/file/output/tmpfs limits. Exact injection-only token usage is unavailable (`null`); byte overhead and full provider usage are recorded separately. Diagnostics are additive to existing summary/CSV interfaces. Code-validity rates require independent rejudging, and unknown observations remain unknown.
+
+Read-only post-hoc diagnosis (new output file, never changes original scores):
+
+```bash
+python scripts/posthoc_rejudge.py \
+  --experiment evidence/real-agent-20261008/trajectories.json \
+  --review benchmark/experiments/harness_ablation_v1/legacy_review.json \
+  --output evidence/harness_ablation_v1/new-posthoc.json
+```
+
+Historical recovery requires matching reviewed trajectory/source hashes, not the present workspace. New experiments capture source privately from a paused owned container before cleanup, or from immutable final submissions. Remote capture without the owning DB/runtime remains unknown. Rejudging pins the original image and verifies baseline-compatible Judge/security source, recording a new diagnostic ID and timestamp.
+
+**Future paid execution is disabled by default and was not run in Phase 6.** After explicit authorization, supply the credential privately through the environment and run:
+
+```bash
+python scripts/harness_ablation.py --real --authorize-paid \
+  --plan-id 43c5fa6bf0d6064c6c16053d0e19d3e6f1e9d7ff6ba88eb478f08a9899679665 \
+  --max-runs 25 --max-model-calls 180 --max-observed-tokens 350000 \
+  --output evidence/harness_ablation_v1/authorized-real-unique
+```
+
+The observed-token cap stops additional calls; the last response can overshoot it. Missing usage also stops further calls. DeepSeek seed effectiveness is unknown, so repeats are not deterministic pairs. A 75-Run extension requires a new preregistration and authorization. The Fake loop proves implementation behavior, not that transparency improves the real model.

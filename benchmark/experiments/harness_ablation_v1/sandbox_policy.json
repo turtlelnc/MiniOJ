@@ -1,0 +1,41 @@
+{
+  "language": "C++17",
+  "compiler_flags": [
+    "-O2",
+    "-std=c++17"
+  ],
+  "network": false,
+  "root_filesystem": "read-only",
+  "workspace": "/workspace",
+  "command_cwd": "/workspace (reset on every call)",
+  "workspace_tmpfs_bytes": 67108864,
+  "tmp_tmpfs_bytes": 16777216,
+  "tmp_execution": false,
+  "api_file_read_write_bytes": 262144,
+  "submission_source_bytes": 262144,
+  "command_output_bytes": 1048576,
+  "run_output_bytes": 4194304,
+  "generated_regular_file_bytes": 1048576,
+  "generated_file_rule": "RLIMIT_FSIZE per file = min(command_output_bytes, remaining run_output_bytes); applies to compiler artifacts too",
+  "command_wall_max_ms": 30000,
+  "command_cpu_ms": "same as requested command wall ms (min 100 ms)",
+  "command_process_tree_rss_mb": 384,
+  "command_linux_address_space_mb": 800,
+  "workspace_container_memory_mb": 512,
+  "workspace_wall_seconds": 900,
+  "workspace_cgroup_cpu_seconds": 120,
+  "pids_limit": 64,
+  "judge_compile_wall_ms": 30000,
+  "judge_compile_process_tree_rss_mb": 640,
+  "judge_compile_container_memory_mb": 768,
+  "judge_compile_artifact_file_bytes": 1048576,
+  "enforcement_sha256": {
+    "minioj/docker_backend.py": "c85061634dbda51c54dca872bf23a4cbd8b6b6725945f3585b822b535c736d03",
+    "minioj/runner.py": "285685003549a5c59a3cbe7eeacd6c4c899212366852b24b312b6ebc7c7f36b5",
+    "minioj/launcher.py": "7d8ae72d3c9e2a1169e05bda75f73b97d5110d48ba5a54547fa67222ed6111de",
+    "minioj/workspace.py": "d9536140cdc62e8951b50af506af84acee5b8e9e6433484ad5b56c2a1639ea5c",
+    "scripts/container_files.py": "54fe76f398a2b48216d18abd469a23f74b25656f4517115771d3d9049e451284",
+    "scripts/container_exec.py": "9d01753d37e743c78047fa569d7b7602abd08874c9dd82ca318ad4e4d1fa5f10",
+    "minioj/config.py": "c55d553a48f10aaa53b138e201b2b3d311d820ac541418a735c2da85aa867a6f"
+  }
+}

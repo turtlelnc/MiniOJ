@@ -84,7 +84,9 @@ def summary(experiment):
         g['group_complete']=g['experiment_complete']
         g['experiment_complete']=overall['experiment_complete']
         if not overall['experiment_complete']:g['final_end_to_end_success_rate']=None
+    from .diagnostics import diagnostics
     return {
+        'diagnostics': diagnostics(units),
         'protocol': manifest['protocol'],
         'overall': overall,
         'groups': groups,

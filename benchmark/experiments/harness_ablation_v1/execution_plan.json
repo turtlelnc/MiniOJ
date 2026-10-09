@@ -1,0 +1,244 @@
+{
+  "version": 1,
+  "study": "harness_ablation_v1",
+  "classification": "exploratory screening, not a significance claim",
+  "legacy_experiment_id": "d35c013c4e274006bda4a2ba05caadfb",
+  "original_commit": "eb5470492c9b8fa4a08c72e25c440de3a17ce7e2",
+  "problems": [
+    {
+      "original_problem_id": 1,
+      "title": "区间和",
+      "snapshot_sha256": "d0fbdb0438a48c5b4ef4626b904566f171522a78006e5c29ec97e7eaf96ce1d3",
+      "hidden_tests_sha256": "cd72bce6352956a865d2921b29ffa0a85d49cd86e6065da48dacb573f98700fa",
+      "test_count": 12
+    },
+    {
+      "original_problem_id": 2,
+      "title": "严格最长递增子序列",
+      "snapshot_sha256": "2692eb7ce420fc1d4c362850d602dd0be46517019e50f6aab70a8041cdeaa5b2",
+      "hidden_tests_sha256": "639bb96f2028cc081b908bae11deb5a5ba7156067299b4bd0bea8dc111fcb12e",
+      "test_count": 13
+    },
+    {
+      "original_problem_id": 3,
+      "title": "无权图最短路",
+      "snapshot_sha256": "ba3f064dedea2b2610a48fe94463ce580e4d5c173dd07248e3574f1ae414bb55",
+      "hidden_tests_sha256": "cf787bb3716a6813f9b276b0005a6721f38263a99af2ef63e94dbd5f60af2f6c",
+      "test_count": 12
+    },
+    {
+      "original_problem_id": 4,
+      "title": "0/1背包",
+      "snapshot_sha256": "975b8bd45eeb67fb1f45a1bbb71899f3f6ea3676b1c504e2906c1fbc87b5f3fd",
+      "hidden_tests_sha256": "a0bdb9634c0d4e6bbf9f29246fe88d22c2d0a423c8d5b829312aeaee430f95cb",
+      "test_count": 12
+    },
+    {
+      "original_problem_id": 5,
+      "title": "非负权有向图单源最短路",
+      "snapshot_sha256": "c07904994fef5d5a7e9ef00697d2a02fa4eba89a24f74040edb0c970cee85217",
+      "hidden_tests_sha256": "6e4fe8bf09af3fcb253963e31df5581ad4905645b3eee74ca785683b08a929bd",
+      "test_count": 13
+    }
+  ],
+  "conditions": {
+    "A": {
+      "budget_visible": false,
+      "sandbox_visible": false,
+      "max_model_calls": 6
+    },
+    "B": {
+      "budget_visible": true,
+      "sandbox_visible": false,
+      "max_model_calls": 6
+    },
+    "C": {
+      "budget_visible": false,
+      "sandbox_visible": true,
+      "max_model_calls": 6
+    },
+    "D": {
+      "budget_visible": true,
+      "sandbox_visible": true,
+      "max_model_calls": 6
+    },
+    "E": {
+      "budget_visible": true,
+      "sandbox_visible": true,
+      "max_model_calls": 12
+    }
+  },
+  "shared": {
+    "provider": "deepseek",
+    "model": "deepseek-flash",
+    "protocol": "final_only",
+    "temperature": 0.2,
+    "max_tokens": 2048,
+    "max_tool_calls": 16,
+    "max_wall_time_seconds": 180,
+    "tool_schema_sha256": "e679290820521100a40f93a1d7049a79e076c89daa9c16bdc946e8bc44173a03",
+    "system_prompt_sha256": "5e6e1d6f745ed1de0a5b5cc96d69b865086a311fee31a15a1ff078da60c6d410",
+    "image_id": "sha256:7a5d27699ebab1b98fa78730b655619eb78a655d2e73698ed218e45717f7a638",
+    "original_judge_fingerprint": "d11a6f4cbaa05259a6d1cf49a5ce22498992f3e99edc9d4d294853a5fddd5bdc"
+  },
+  "random_order_seed": 20261009,
+  "schedule": [
+    {
+      "problem_index": 2,
+      "condition": "E",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 2,
+      "condition": "D",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 2,
+      "condition": "C",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 2,
+      "condition": "B",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 2,
+      "condition": "A",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 4,
+      "condition": "D",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 4,
+      "condition": "C",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 4,
+      "condition": "E",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 4,
+      "condition": "A",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 4,
+      "condition": "B",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 0,
+      "condition": "A",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 0,
+      "condition": "D",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 0,
+      "condition": "B",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 0,
+      "condition": "E",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 0,
+      "condition": "C",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 3,
+      "condition": "B",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 3,
+      "condition": "A",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 3,
+      "condition": "C",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 3,
+      "condition": "E",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 3,
+      "condition": "D",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 1,
+      "condition": "C",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 1,
+      "condition": "A",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 1,
+      "condition": "B",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 1,
+      "condition": "D",
+      "repetition": 1,
+      "requested_seed": 1
+    },
+    {
+      "problem_index": 1,
+      "condition": "E",
+      "repetition": 1,
+      "requested_seed": 1
+    }
+  ],
+  "planned_units": 25,
+  "maximum_model_calls": 180,
+  "observed_token_stop_cap": 350000,
+  "missing_usage_policy": "stop before next model call",
+  "paid_execution_default": false,
+  "seed_effective": "unknown; provider does not promise seeded sampling",
+  "plan_id": "43c5fa6bf0d6064c6c16053d0e19d3e6f1e9d7ff6ba88eb478f08a9899679665"
+}

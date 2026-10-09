@@ -1,0 +1,17 @@
+{
+  "trajectories_sha256": "786d0aa796efdbc573edd2494b0017525d6265e0ab6d435c434e271104d7b70c",
+  "sources": {
+    "0": "57b28fd18c61b15df61f60b01aee0b35b2b031ae53f75f199269660ac1a4463d",
+    "3": "98eafdfd18c751d3c1209d8ffae41f672e62493388bd96de46ae2bb13ea9f538",
+    "5": "d7284323c2b6cb7ebb839c36fc33e7bd4b9bad5e03e676806959007df971954e",
+    "6": "b1f40f51c3a2702fb9d6c80f5a8a7606abaa9185584e96880074ddb2a0acd707",
+    "7": "b1f40f51c3a2702fb9d6c80f5a8a7606abaa9185584e96880074ddb2a0acd707",
+    "8": "873bdabb8dd961f88885ad717e804648a780bbeacb366612fe9e62cbd9cb161e",
+    "9": "f1eefe861711873ed497a8b8d7c1d31c90127dbddd75348550299a208cd668c0",
+    "10": "f1eefe861711873ed497a8b8d7c1d31c90127dbddd75348550299a208cd668c0",
+    "12": "9f03bbdcebea00d4d1a090e5df326afb3167510b058f6a0c6aecadefbf41d21b",
+    "13": "e354696d983419b0892407fc8c9fbaf15be396274bafbbe4cf293d9bb5f044f1",
+    "14": "fd315d001702ebbf01521acca949a60b8cbac9be93efe72ef43cefabe4b6b370"
+  },
+  "review": "2026-10-09: all commands after the last main.cpp write inspected manually; no command mutates main.cpp. Existing candidate artifacts match those writes. Historical posthoc lacks per-rejudge ID/timestamp; future tool records them."
+}

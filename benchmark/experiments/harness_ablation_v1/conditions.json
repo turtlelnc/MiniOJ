@@ -1,0 +1,27 @@
+{
+  "A": {
+    "budget_visible": false,
+    "sandbox_visible": false,
+    "max_model_calls": 6
+  },
+  "B": {
+    "budget_visible": true,
+    "sandbox_visible": false,
+    "max_model_calls": 6
+  },
+  "C": {
+    "budget_visible": false,
+    "sandbox_visible": true,
+    "max_model_calls": 6
+  },
+  "D": {
+    "budget_visible": true,
+    "sandbox_visible": true,
+    "max_model_calls": 6
+  },
+  "E": {
+    "budget_visible": true,
+    "sandbox_visible": true,
+    "max_model_calls": 12
+  }
+}

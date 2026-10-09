@@ -13,7 +13,7 @@ def initialize(c):
 
 def create(spec):
  if not isinstance(spec,dict):raise ValueError('Configuration must be an object')
- allowed={'name','problems','models','seeds','protocol','limits','temperature','max_tokens','system_prompt'}
+ allowed={'name','problems','models','seeds','protocol','limits','temperature','max_tokens','system_prompt','harness'}
  if set(spec)-allowed:raise ValueError('Unknown benchmark configuration fields')
  name=spec.get('name');problems=spec.get('problems');models=spec.get('models');seeds=spec.get('seeds',[1]);protocol=spec.get('protocol','final_only')
  if not isinstance(name,str) or not 1<=len(name)<=200:raise ValueError('Invalid name')
@@ -43,6 +43,10 @@ def create(spec):
   except (OSError,subprocess.CalledProcessError):return None
  commit=git('rev-parse','HEAD');diff=git('diff','HEAD');bid=uuid.uuid4().hex
  manifest={'experiment_id':bid,'experiment_name':name,'created_at':db.now(),'git_commit':commit,'git_dirty':bool(diff),'source_diff_sha256':hashlib.sha256((diff or '').encode()).hexdigest(),'runner_version':VERSION,'judge_backend':config.JUDGE_BACKEND,'protocol':protocol,'models':models,'seeds':seeds,'temperature':temperature,'max_tokens':max_tokens,'limits':limits,'system_prompt':spec.get('system_prompt',SYSTEM_PROMPT),'tool_schema':tools(protocol),'problem_snapshots':snapshots,'environment_information':{'sandbox_image':config.IMAGE,'docker_context':config.DOCKER_CONTEXT,**config.RUNTIME_INFORMATION},'model_backend_version':'unknown'}
+ if 'harness' in spec:
+  from .harness import validate_harness
+  if protocol!='final_only':raise ValueError('Ablation requires final_only')
+  manifest['harness']=validate_harness(spec['harness'],limits)
  from minioj.docker_backend import docker,DockerError
  if config.JUDGE_BACKEND=='docker':
   try:manifest['environment_information'].update(json.loads(docker(['image','inspect',config.IMAGE,'--format','{"image_id":{{json .Id}},"architecture":{{json .Architecture}},"os":{{json .Os}}}'])))
@@ -74,6 +78,8 @@ def get(bid,internal=False):
    hidden=p.pop('testcases');p['hidden_tests_sha256']=hashlib.sha256(json.dumps(hidden,sort_keys=True).encode()).hexdigest();p.pop('deleted',None)
   for u in result['units']:
    u['record'].pop('messages',None);u['record'].pop('pending_tool',None)
+   u['record'].pop('termination_code',None)
+   u['record'].pop('tool_events',None)
  from .metrics import summary
  result['summary']=summary(result)
  return result
